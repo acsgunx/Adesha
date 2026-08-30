@@ -57,15 +57,39 @@ backtesting, social features, multi-user tenancy, payments, mobile native apps.
 # TECH STACK — FIXED, DO NOT SUBSTITUTE
 
 - Backend: C# on .NET 10 (LTS, supported to Nov 2028). ASP.NET Core Web API.
+- Orchestration: Aspire 13.5+ (note: branded simply "Aspire", not ".NET Aspire" — it is now
+  polyglot. CLI installs via Homebrew: `brew install aspire`. Docs: https://aspire.dev/).
+  Aspire is the single source of truth for local topology, service wiring, and telemetry.
 - Frontend: Angular 22, standalone components, signals, built-in control flow (@if/@for/@switch).
 - Database: PostgreSQL 16+ via Entity Framework Core 10, code-first migrations.
 - Cache/pubsub: Redis 7+ via StackExchange.Redis.
 - Realtime: ASP.NET Core SignalR, Redis backplane.
-- Resilience: Microsoft.Extensions.Http.Resilience (Polly v8 pipelines).
-- Logging: Serilog, structured, JSON sink in production.
+- Resilience: Microsoft.Extensions.Http.Resilience (Polly v8), via Aspire ServiceDefaults —
+  but see Rule 11, which overrides the Aspire default for broker order calls.
+- Telemetry: OpenTelemetry via Aspire ServiceDefaults; Serilog for structured app logging,
+  exported through OTLP so it appears in the Aspire dashboard.
 - Validation: FluentValidation.
 - Tests: xUnit + NSubstitute + Testcontainers (backend); Vitest/Jasmine + Playwright (frontend).
-- Local dev: Docker Compose.
+- Local dev: `aspire run`. Do NOT hand-write a docker-compose.yml — generate it from the
+  AppHost via Aspire's Docker Compose publisher when a Compose artifact is needed.
+
+What Aspire gives you, so you do NOT build these by hand:
+- Container lifecycle for PostgreSQL and Redis, with connection strings injected into
+  consumers. No hardcoded connection strings, no manual Compose networking.
+- `AddServiceDefaults()`: OpenTelemetry traces/metrics/logs over OTLP, `/health` and
+  `/alive` endpoints, service discovery, and a standard HTTP resilience handler.
+- Startup ordering via `.WaitFor()` / `.WithHttpHealthCheck()` — use this instead of
+  retry-until-the-database-appears loops.
+- A local dashboard with distributed traces. This is the primary debugging tool for this
+  project: an order's full path across API, adapter, and broker HTTP call appears as one
+  trace, which is how you will diagnose token expiry, latency, and rate limiting.
+
+What Aspire does NOT do, so do not claim it does:
+- It is dev-time and deploy-time tooling, not a production runtime. The AppHost does not
+  run in production; it publishes manifests (Docker Compose or Kubernetes). Production
+  hosting is still an explicit decision made in Work Order 6.
+- It does not manage broker credentials. Use Aspire parameters for non-secret config;
+  secrets stay in User Secrets locally and a vault in production per Rule 3.
 
 If you believe a stack element is wrong for a requirement, say so and wait. Do not
 silently swap libraries. Do not add a dependency without naming it and why in your reply.
@@ -82,7 +106,12 @@ silently swap libraries. Do not add a dependency without naming it and why in yo
    source, appsettings*.json committed to git, logs, error messages, API responses,
    frontend bundles, or your chat replies. Use .NET User Secrets locally, environment
    variables or a vault in production. Add a redaction layer to Serilog and prove it works
-   with a test.
+   with a test. This redaction MUST also cover OpenTelemetry export: Aspire's HttpClient
+   instrumentation captures outbound request detail, and m.Stock passes credentials in an
+   `Authorization: token api_key:jwtToken` header. Without an explicit enrichment filter,
+   your broker API key is rendered in plain text in the Aspire dashboard and in any
+   OTLP-connected backend. Redact at the span level and write a test asserting no span
+   attribute contains a credential.
 4. The Angular app never talks to a broker API directly and never holds a broker secret.
    All broker traffic goes through the backend.
 5. Money and quantities: `decimal` in C#, `numeric(18,4)` in PostgreSQL. Never `double`,
@@ -100,6 +129,22 @@ silently swap libraries. Do not add a dependency without naming it and why in yo
    may have been accepted. Retrying blindly double-fills the user.
 10. No hardcoded symbols, exchanges, lot sizes, tick sizes, margins, or market timings.
     All come from the broker's instrument master or configuration.
+11. Aspire ServiceDefaults calls `ConfigureHttpClientDefaults` with
+    `AddStandardResilienceHandler()`, which applies a retry strategy to ALL outbound
+    HttpClient traffic. Applied to a broker order endpoint this directly violates Rule 9:
+    a timed-out `POST /orders` would be retried automatically and silently double-fill the
+    user. Therefore:
+    - Broker HttpClients must NOT inherit the default resilience handler. Either remove it
+      from the shared default and opt in per client, or explicitly disable/replace it on
+      every broker client.
+    - Order-mutating clients get a timeout and circuit breaker but ZERO retries.
+    - Idempotent broker reads may retry.
+    - Verify the actual configured behaviour by test — assert that a mutating call which
+      times out results in exactly one outbound HTTP attempt. Do not rely on my description
+      of Aspire's defaults or on the assumption that the handler excludes non-idempotent
+      methods; confirm it in the version you install and report what you found.
+12. Do not use Aspire's service discovery to reach broker APIs. Broker endpoints are fixed
+    external URLs from configuration, not discovered services.
 
 # DOMAIN CONSTRAINTS YOU MUST DESIGN FOR
 
@@ -142,6 +187,9 @@ These break naive implementations. Handle them explicitly.
 
 Solution layout — enforce dependency direction strictly (Domain depends on nothing):
 
+  src/Adesha.AppHost         Aspire orchestration. Declares Postgres, Redis, API, Web.
+                             Contains NO business logic. Never referenced by other projects.
+  src/Adesha.ServiceDefaults Shared OTel/health/resilience wiring + credential redaction.
   src/Adesha.Domain          entities, value objects, state machines, domain rules. No IO.
   src/Adesha.Application     use cases, ports (interfaces), DTOs, validators.
   src/Adesha.Infrastructure  EF Core, Redis, Serilog, background services.
@@ -149,8 +197,11 @@ Solution layout — enforce dependency direction strictly (Domain depends on not
   src/Adesha.Brokers.MStock         m.Stock adapter. Referenced only by DI wiring.
   src/Adesha.Brokers.Zerodha        Zerodha adapter. Referenced only by DI wiring.
   src/Adesha.Api             ASP.NET Core host, endpoints, SignalR hubs, auth.
-  src/Adesha.Web             Angular 22 app.
+  src/Adesha.Web             Angular 22 app, hosted as an Aspire resource.
   tests/...                   mirrors src, one project per production project.
+
+Aspire does not relax the dependency rules. AppHost is a leaf that nothing depends on, and
+ServiceDefaults must not reference Domain, Application, or any broker project.
 
 Broker abstraction requirements:
 - One `IBrokerAdapter` interface, async, every method takes a CancellationToken.
@@ -187,8 +238,10 @@ Broker abstraction requirements:
 2. `dotnet test` and frontend tests green; new logic covered including failure paths.
 3. `dotnet format --verify-no-changes` and `ng lint` clean.
 4. New EF Core migration committed if the schema changed, and it applies to an empty DB.
-5. `docker compose up` brings the whole system up from scratch on a clean machine.
-6. No secret in any tracked file: prove it, do not assert it.
+5. `aspire run` brings the whole system up from scratch on a clean machine, all resources
+   reach healthy, and the dashboard shows traces for a representative request.
+6. No secret in any tracked file AND no secret visible in the Aspire dashboard (check
+   trace attributes and resource environment variables): prove it, do not assert it.
 7. A summary listing: what changed, how you verified it, what you did NOT do, known
    risks, and the next thing you would do.
 
@@ -205,30 +258,40 @@ Work Order 1 of 6: foundation. Build only this.
 
 Deliver:
 1. The solution structure from the Master Prompt, with dependency direction enforced by
-   an architecture test that FAILS if Domain references Infrastructure, or if Api
-   references a concrete broker project outside DI composition.
-2. Docker Compose: PostgreSQL, Redis, API. One command from clean clone to running.
-3. Configuration and secret handling: strongly-typed options with startup validation
-   (fail fast, do not boot misconfigured), User Secrets locally, TradingMode defaulting
-   to Disabled, Serilog with a redaction enricher plus a test proving a token value never
-   reaches a log sink.
-4. Local app authentication: ASP.NET Core Identity, single owner account, mandatory TOTP
+   an architecture test that FAILS if Domain references Infrastructure, if Api references a
+   concrete broker project outside DI composition, or if anything references AppHost.
+2. Aspire AppHost declaring PostgreSQL (with a persistent data volume so migrations and
+   seeded data survive restarts), Redis, the API, and the Angular app. Use `.WaitFor()` and
+   `.WithHttpHealthCheck()` for startup ordering rather than connection-retry loops.
+   `aspire run` must take a clean clone to a fully healthy system in one command.
+   Do not hand-write docker-compose.yml.
+3. Adesha.ServiceDefaults: `AddServiceDefaults()` wired into the API, plus the credential
+   redaction required by Rule 3 applied to BOTH Serilog sinks and OpenTelemetry span
+   attributes. Include the Rule 11 resilience change here: broker HttpClients must not
+   inherit the default retry handler. Prove both with tests.
+4. Configuration and secret handling: strongly-typed options with startup validation
+   (fail fast, do not boot misconfigured), User Secrets locally, Aspire parameters for
+   non-secret config, TradingMode defaulting to Disabled.
+5. Local app authentication: ASP.NET Core Identity, single owner account, mandatory TOTP
    second factor, short-lived JWT access token plus refresh token rotation, account
    lockout. This is the app's OWN login and is entirely separate from broker credentials —
    keep the two concepts distinct in naming and storage.
-5. Domain primitives: Money, Quantity, InstrumentId, and the Order status state machine
+6. Domain primitives: Money, Quantity, InstrumentId, and the Order status state machine
    with legal transitions encoded and unit-tested exhaustively, including every illegal
    transition being rejected.
-6. Append-only audit log: table, EF Core interceptor or explicit write path, and a test
+7. Append-only audit log: table, EF Core interceptor or explicit write path, and a test
    proving update and delete are impossible through the application.
-7. Health checks for DB and Redis, plus /health/ready and /health/live.
-8. Angular 22 shell: standalone bootstrap, routing, auth guard, login + TOTP screens,
+8. Health checks: extend the ServiceDefaults `/health` and `/alive` endpoints with DB and
+   Redis readiness checks. Use Aspire's endpoint names rather than inventing parallel ones.
+9. Angular 22 shell: standalone bootstrap, routing, auth guard, login + TOTP screens,
    HTTP interceptor for auth and correlation id, and a persistent TradingMode banner.
-9. CI: build, test, lint, format check, migration-applies check.
+10. CI: build, test, lint, format check, migration-applies check. CI must not depend on the
+    Aspire dashboard or on interactive `aspire run`; use Testcontainers for integration tests.
 
 Do NOT touch broker APIs, orders, or market data yet.
 
-Then tell me exactly how to run it and how to verify each numbered item myself.
+Then tell me exactly how to run it and how to verify each numbered item myself, including
+where in the Aspire dashboard to look to confirm redaction is working.
 ```
 
 ---
@@ -246,9 +309,11 @@ Deliver:
    session token, plus TOTP verification path), funds/margin, instrument master CSV,
    LTP and OHLC quotes, order book, trade book, positions, holdings.
    Order mutation is Work Order 3 — do not implement it, do not stub it as if it works.
-3. Typed HttpClient per broker via HttpClientFactory with resilience pipelines: timeout,
-   jittered retry on IDEMPOTENT reads only, circuit breaker, and a client-side rate
-   limiter. Document the retry policy for each endpoint class and justify it.
+3. Typed HttpClient per broker via HttpClientFactory, explicitly opted OUT of the Aspire
+   ServiceDefaults standard resilience handler (Rule 11), with a hand-configured pipeline:
+   timeout, jittered retry on IDEMPOTENT reads only, circuit breaker, and a client-side
+   rate limiter. Document the retry policy for each endpoint class and justify it. Add a
+   test that asserts a mutating call is attempted exactly once.
 4. Session/token store: encrypted at rest, per broker, with explicit expiry tracking.
    Detect expiry proactively rather than on failure. Surface an "action required:
    re-authenticate" state to the UI. Never retry a login automatically into a lockout.
@@ -374,13 +439,20 @@ Deliver:
 3. Observability: structured logs with correlation ids propagated through broker calls,
    OpenTelemetry traces, metrics for order latency/rejection rate/feed staleness/API
    quota use, and alerts on order rejection spikes, feed disconnects, session expiry, and
-   reconciliation divergence.
+   reconciliation divergence. The Aspire dashboard is a local dev tool and is NOT the
+   production observability story — export OTLP to a real backend with retention, and
+   state which one. Custom metrics must be emitted via the OTel Meter API so they flow to
+   both. Confirm the dashboard is not exposed in production.
 4. Backup and recovery: PostgreSQL backup with point-in-time recovery, and a documented,
    TESTED restore procedure. Untested backups do not count.
 5. Data retention, GDPR-style export/delete for personal data, and audit retention that
    satisfies record-keeping expectations.
-6. Deployment: multi-stage Docker images, non-root containers, migration strategy that is
-   safe to run on a live database, rollback procedure, and CDN for Angular assets.
+6. Deployment: publish deployment artifacts from the AppHost using Aspire's Docker Compose
+   or Kubernetes publisher rather than maintaining hand-written manifests in parallel —
+   the AppHost stays the single source of truth. Then: multi-stage Docker images, non-root
+   containers, a migration strategy safe to run on a live database, rollback procedure, and
+   CDN for Angular assets. State plainly which parts of the generated output you had to
+   modify by hand and why, since those are the parts that will drift.
 7. Docs: architecture with the C4 model, Swagger/OpenAPI, runbook for token expiry and
    feed outage and reconciliation divergence, and a threat model.
 8. A go-live checklist, including how to flip TradingMode from Disabled to Paper to Live
@@ -406,3 +478,4 @@ If you want to adapt it, keep these properties — they are the parts that do th
 | "Never invent an endpoint" | The dominant failure mode on broker APIs is confidently hallucinated endpoints and field names. |
 | Mandated honest reporting | Forces the untested and half-done parts into the summary where you can see them. |
 | Work Order 5 as an abstraction test | Adding the second broker is the only real proof the first abstraction was correct. |
+| Framework defaults named as hazards | Aspire's conveniences are dangerous in an order path — auto-retry on outbound HTTP, auto-capture of request headers. A prompt that merely says "use Aspire" inherits both silently. |

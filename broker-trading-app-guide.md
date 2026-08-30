@@ -29,6 +29,22 @@ The name comes from Sanskrit *ādeśa* (आदेश), "an order, command, instr
 - First-class resilience via `Microsoft.Extensions.Http.Resilience` (Polly v8 pipelines)
 - Strong cloud-native and container tooling
 
+### Orchestration
+**Aspire 13.5+**
+- **Why**: Removes most of the hand-written glue between API, Angular, PostgreSQL, and Redis
+- **Note on naming**: now branded simply "Aspire", not ".NET Aspire" — it became polyglot in v13 and ships a TypeScript AppHost alongside C#. Install the CLI with `brew install aspire`. Docs: https://aspire.dev/
+- **Benefits**:
+  - AppHost declares the whole local topology; `aspire run` replaces hand-maintained Compose files
+  - Connection strings injected into consumers — no hardcoded strings, no manual container networking
+  - `AddServiceDefaults()` supplies OpenTelemetry, `/health` + `/alive`, service discovery, and HTTP resilience in one call
+  - `.WaitFor()` / `.WithHttpHealthCheck()` give real startup ordering instead of connection-retry loops
+  - Local dashboard renders distributed traces — the single most useful tool for debugging broker API latency, token expiry, and rate limiting
+  - Publishes Docker Compose and Kubernetes manifests from the same AppHost definition
+- **Limits, and two real hazards**:
+  - Aspire is dev-time and deploy-time tooling, not a production runtime. The AppHost does not run in production.
+  - **Hazard 1**: ServiceDefaults applies `AddStandardResilienceHandler()` to all outbound `HttpClient` traffic. On a broker order endpoint that means an automatic retry of a timed-out `POST /orders` — a silent double-fill. Broker clients must opt out; see Rule 11 in `trading-app-ai-prompt.md`.
+  - **Hazard 2**: HttpClient instrumentation captures outbound request detail, and m.Stock passes credentials in the `Authorization` header. Without span-level redaction your API key is rendered in plain text in the dashboard.
+
 ### Frontend Framework
 **Angular 22+ (Latest) with TypeScript**
 - **Why**: Enterprise-grade framework with excellent architecture and TypeScript support
