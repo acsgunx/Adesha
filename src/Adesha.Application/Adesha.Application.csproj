@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <ProjectReference Include="..\Adesha.Brokers.Abstractions\Adesha.Brokers.Abstractions.csproj" />
     <ProjectReference Include="..\Adesha.Domain\Adesha.Domain.csproj" />
   </ItemGroup>
 

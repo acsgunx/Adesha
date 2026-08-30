@@ -33,6 +33,8 @@ public sealed class AdeshaApiFactory : WebApplicationFactory<Program>, IAsyncLif
                 ["ConnectionStrings:adesha-redis"] = _redis.GetConnectionString(),
                 // Test-only signing key; real keys come from User Secrets / vault (Rule 3).
                 ["Adesha:Jwt:SigningKey"] = "integration-test-signing-key-0123456789abcdef",
+                // Test-only broker API key; real keys come from User Secrets / vault (Rule 3).
+                ["MStock:ApiKey"] = "test-api-key-not-real",
             });
         });
     }

@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Abstractions may reference Domain only. No broker DTOs leak past this boundary. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Adesha.Domain\Adesha.Domain.csproj" />
+  </ItemGroup>
+</Project>

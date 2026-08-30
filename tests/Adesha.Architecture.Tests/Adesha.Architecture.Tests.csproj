@@ -12,6 +12,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Adesha.Domain\Adesha.Domain.csproj" />
     <ProjectReference Include="..\..\src\Adesha.Application\Adesha.Application.csproj" />
+    <ProjectReference Include="..\..\src\Adesha.Brokers.Abstractions\Adesha.Brokers.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\Adesha.Infrastructure\Adesha.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Adesha.ServiceDefaults\Adesha.ServiceDefaults.csproj" />
     <ProjectReference Include="..\..\src\Adesha.Api\Adesha.Api.csproj" />

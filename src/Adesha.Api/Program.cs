@@ -3,14 +3,19 @@ using Adesha.Api.Configuration;
 using Adesha.Api.Middleware;
 using Adesha.Api.SystemStatus;
 using Adesha.Application.Auditing;
+using Adesha.Application.Brokers;
 using Adesha.Application.Configuration;
+using Adesha.Brokers.MStock;
 using Adesha.Infrastructure.Auditing;
+using Adesha.Infrastructure.Brokers;
 using Adesha.Infrastructure.Identity;
 using Adesha.Infrastructure.Persistence;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -57,6 +62,21 @@ builder.Services.AddValidatorsFromAssemblyContaining<LoginRequestValidator>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<IAuditWriter, EfAuditWriter>();
+
+// Broker: m.Stock adapter with Rule 11-compliant resilience (read-only in WO2).
+// The API key comes from User Secrets / Aspire parameters; the adapter is registered
+// as IBrokerAdapter so the application layer never depends on the concrete type.
+builder.Services.AddMStockBroker(builder.Configuration);
+builder.Services.AddMStockBrokerAdapter();
+
+// Broker session store: Redis-backed, with TTL matching session expiry.
+builder.Services.AddSingleton<IBrokerSessionStore, RedisBrokerSessionStore>();
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = builder.Configuration.GetConnectionString("adesha-redis")
+        ?? throw new InvalidOperationException("Connection string 'adesha-redis' is missing.");
+    options.InstanceName = "adesha:";
+});
 
 builder.Services.AddOpenApi();
 builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =>

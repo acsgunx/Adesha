@@ -2,13 +2,14 @@
   <ItemGroup>
     <ProjectReference Include="..\Adesha.ServiceDefaults\Adesha.ServiceDefaults.csproj" />
     <ProjectReference Include="..\Adesha.Application\Adesha.Application.csproj" />
+    <ProjectReference Include="..\Adesha.Brokers.MStock\Adesha.Brokers.MStock.csproj" />
     <ProjectReference Include="..\Adesha.Infrastructure\Adesha.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="StackExchange.Redis" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
   </ItemGroup>
 

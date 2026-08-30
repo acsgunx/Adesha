@@ -3,6 +3,8 @@
     <Project Path="src/Adesha.Api/Adesha.Api.csproj" />
     <Project Path="src/Adesha.AppHost/Adesha.AppHost.csproj" />
     <Project Path="src/Adesha.Application/Adesha.Application.csproj" />
+    <Project Path="src/Adesha.Brokers.Abstractions/Adesha.Brokers.Abstractions.csproj" />
+    <Project Path="src/Adesha.Brokers.MStock/Adesha.Brokers.MStock.csproj" />
     <Project Path="src/Adesha.Domain/Adesha.Domain.csproj" />
     <Project Path="src/Adesha.Infrastructure/Adesha.Infrastructure.csproj" />
     <Project Path="src/Adesha.ServiceDefaults/Adesha.ServiceDefaults.csproj" />
@@ -10,6 +12,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Adesha.Api.Tests/Adesha.Api.Tests.csproj" />
     <Project Path="tests/Adesha.Architecture.Tests/Adesha.Architecture.Tests.csproj" />
+    <Project Path="tests/Adesha.Brokers.MStock.Tests/Adesha.Brokers.MStock.Tests.csproj" />
     <Project Path="tests/Adesha.Domain.Tests/Adesha.Domain.Tests.csproj" />
     <Project Path="tests/Adesha.Infrastructure.Tests/Adesha.Infrastructure.Tests.csproj" />
     <Project Path="tests/Adesha.ServiceDefaults.Tests/Adesha.ServiceDefaults.Tests.csproj" />

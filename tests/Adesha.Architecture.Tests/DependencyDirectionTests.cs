@@ -14,6 +14,7 @@ public class DependencyDirectionTests
 {
     private static readonly Assembly Domain = typeof(Adesha.Domain.Orders.OrderStatus).Assembly;
     private static readonly Assembly Application = typeof(Adesha.Application.Configuration.AdeshaOptions).Assembly;
+    private static readonly Assembly BrokerAbstractions = typeof(Adesha.Brokers.Abstractions.BrokerId).Assembly;
     private static readonly Assembly Infrastructure = typeof(Adesha.Infrastructure.Persistence.AdeshaDbContext).Assembly;
     private static readonly Assembly ServiceDefaults = typeof(Adesha.ServiceDefaults.Redaction.CredentialRedactor).Assembly;
     private static readonly Assembly Api = typeof(Program).Assembly;
@@ -31,9 +32,15 @@ public class DependencyDirectionTests
     }
 
     [Fact]
-    public void Application_references_only_Domain()
+    public void Application_references_only_Domain_and_BrokerAbstractions()
     {
-        Assert.Equal(["Adesha.Domain"], AdeshaReferencesOf(Application));
+        Assert.Equal(["Adesha.Brokers.Abstractions", "Adesha.Domain"], AdeshaReferencesOf(Application));
+    }
+
+    [Fact]
+    public void BrokerAbstractions_references_only_Domain()
+    {
+        Assert.Equal(["Adesha.Domain"], AdeshaReferencesOf(BrokerAbstractions));
     }
 
     [Fact]
@@ -43,10 +50,10 @@ public class DependencyDirectionTests
     }
 
     [Fact]
-    public void Infrastructure_references_only_Application_and_Domain()
+    public void Infrastructure_references_only_Application_Domain_and_BrokerAbstractions()
     {
         Assert.All(AdeshaReferencesOf(Infrastructure),
-            name => Assert.Contains(name, new[] { "Adesha.Application", "Adesha.Domain" }));
+            name => Assert.Contains(name, new[] { "Adesha.Application", "Adesha.Brokers.Abstractions", "Adesha.Domain" }));
     }
 
     [Theory]
@@ -69,21 +76,20 @@ public class DependencyDirectionTests
     }
 
     [Fact]
-    public void Api_references_no_concrete_broker_types_outside_DI_composition()
+    public void Api_may_reference_concrete_broker_projects_only_for_DI_composition()
     {
-        // Concrete broker adapters may only be touched by DI wiring. Until broker projects
-        // exist (Work Order 2+), the API must not reference any broker assembly at all
-        // except the abstractions.
-        Assert.False(
-            AdeshaReferencesOf(Api).Any(n => n.StartsWith("Adesha.Brokers.", StringComparison.Ordinal)
-                && n != "Adesha.Brokers.Abstractions"),
-            "Only DI composition (reviewed manually) may use concrete broker projects.");
+        // The API is the DI composition root and may reference concrete broker projects
+        // for registration purposes. Application and Infrastructure must NOT.
+        // This is verified by the Domain_and_Application_reference_no_broker_project test
+        // and the Infrastructure test above.
+        Assert.Contains("Adesha.Brokers.MStock", AdeshaReferencesOf(Api));
     }
 
     public static TheoryData<string, Assembly> AllAssemblies() => new()
     {
         { "Domain", Domain },
         { "Application", Application },
+        { "BrokerAbstractions", BrokerAbstractions },
         { "Infrastructure", Infrastructure },
         { "ServiceDefaults", ServiceDefaults },
         { "Api", Api },
@@ -93,5 +99,6 @@ public class DependencyDirectionTests
     {
         { "Domain", Domain },
         { "Application", Application },
+        { "BrokerAbstractions", BrokerAbstractions },
     };
 }
