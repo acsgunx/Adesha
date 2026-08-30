@@ -6,7 +6,7 @@ This guide provides comprehensive recommendations for building a broker trading 
 ## Recommended Tech Stack
 
 ### Backend Framework
-**C# with .NET 8+ (Latest)** (Recommended)
+**C# with .NET 10+ (Latest)** (Recommended)
 - **Why**: Enterprise-grade framework with excellent performance, strong typing, and comprehensive ecosystem
 - **Benefits**: 
   - Superior performance and scalability for high-frequency trading
@@ -19,15 +19,16 @@ This guide provides comprehensive recommendations for building a broker trading 
   - Strong security features and compliance support
   - Cross-platform support with .NET Core
 
-**Key .NET 8+ Features**:
-- Improved performance and JIT compilation
-- Native AOT compilation for faster startup
-- Enhanced HTTP/3 support
-- Improved container support
-- Better cloud-native development
+**Why .NET 10 specifically**:
+- LTS release (Nov 2025), supported until Nov 2028 — .NET 8 reaches end-of-support Nov 2026
+- Continued runtime and JIT performance improvements
+- Mature Native AOT for faster startup and smaller containers
+- HTTP/3 support
+- First-class resilience via `Microsoft.Extensions.Http.Resilience` (Polly v8 pipelines)
+- Strong cloud-native and container tooling
 
 ### Frontend Framework
-**Angular 17+ (Latest) with TypeScript**
+**Angular 22+ (Latest) with TypeScript**
 - **Why**: Enterprise-grade framework with excellent architecture and TypeScript support
 - **Benefits**:
   - Comprehensive framework with built-in routing, forms, and HTTP client
@@ -40,12 +41,13 @@ This guide provides comprehensive recommendations for building a broker trading 
   - Strong enterprise adoption and support
   - Progressive Web App (PWA) support out of the box
 
-**Key Angular 17+ Features**:
-- New control flow syntax (@if, @for, @switch)
-- Standalone components as default
-- Improved performance with hydration
-- Better developer experience with new diagnostics
-- Enhanced server-side rendering with Angular Universal
+**Why Angular 22 specifically**:
+- Current release (June 2026); Angular 17 is already past security support
+- Signals-based reactivity, reducing reliance on manual change detection
+- Standalone components as the default (no NgModule boilerplate)
+- Built-in control flow syntax (`@if`, `@for`, `@switch`)
+- Improved SSR and hydration
+- Better build performance and diagnostics
 
 ### Database
 **PostgreSQL with Entity Framework Core**
@@ -71,7 +73,7 @@ This guide provides comprehensive recommendations for building a broker trading 
   - Support for clustering and high availability
 
 ### API Layer
-**ASP.NET Core Web API** (.NET 8+)
+**ASP.NET Core Web API** (.NET 10+)
 - REST API endpoints with minimal APIs or controllers
 - SignalR for real-time WebSocket communication
 - Built-in middleware pipeline for rate limiting and authentication
@@ -275,13 +277,19 @@ public class BrokerFactory
 
 ## Detailed AI Prompts for Development
 
+> **Use `trading-app-ai-prompt.md` instead for actually driving an AI.** It contains a
+> hardened Master Prompt (role, non-negotiable safety rules, trading-domain failure modes)
+> plus six sequential work orders with measurable acceptance criteria. The phase prompts
+> below are retained as a feature-coverage reference — they are checklists, not specs, and
+> they omit the safety constraints that matter when placing real orders.
+
 ### Phase 1: Project Setup
 ```
 Create a modern broker trading application with the following specifications:
 
 ## Tech Stack
-- Backend: C# with .NET 8+ (ASP.NET Core Web API)
-- Frontend: Angular 17+ with TypeScript
+- Backend: C# with .NET 10+ (ASP.NET Core Web API)
+- Frontend: Angular 22+ with TypeScript
 - Database: PostgreSQL with Entity Framework Core
 - Caching: Redis with StackExchange.Redis
 - Authentication: ASP.NET Core Identity with JWT Bearer Tokens
@@ -300,13 +308,13 @@ Create a modern broker trading application with the following specifications:
    - BrokerTradingApp.Brokers (Broker-specific implementations)
    - BrokerTradingApp.Tests (Unit and integration tests)
 
-2. Configure .NET 8+ project with:
+2. Configure .NET 10+ project with:
    - Nullable reference types enabled
    - Implicit usings
    - Modern project structure
    - Configuration management (appsettings.json, User Secrets)
 
-3. Set up Angular 17+ project with:
+3. Set up Angular 22+ project with:
    - Standalone components
    - New control flow syntax (@if, @for, @switch)
    - TypeScript strict mode
@@ -681,7 +689,7 @@ public class MarketDataHub : Hub
 
 ### Phase 5: Frontend Implementation
 ```
-Build a modern, responsive frontend for the trading application using Angular 17+:
+Build a modern, responsive frontend for the trading application using Angular 22+:
 
 ## UI Components
 1. Dashboard with portfolio overview and key metrics
@@ -694,7 +702,7 @@ Build a modern, responsive frontend for the trading application using Angular 17
 8. Notifications and alerts panel with SignalR
 
 ## Technical Requirements
-- Use Angular 17+ with standalone components
+- Use Angular 22+ with standalone components
 - Implement new control flow syntax (@if, @for, @switch)
 - Use Angular Material or PrimeNG for UI components
 - Implement responsive design (mobile-first with Flexbox/Grid)
@@ -899,8 +907,8 @@ Implement comprehensive security measures and production optimization using ASP.
 ## Development Roadmap
 
 ### Phase 1: Foundation (Weeks 1-2)
-- .NET 8+ solution setup and project structure
-- Angular 17+ frontend project setup
+- .NET 10+ solution setup and project structure
+- Angular 22+ frontend project setup
 - PostgreSQL database schema design with EF Core
 - ASP.NET Core Identity authentication system
 - Basic ASP.NET Core Web API structure
@@ -1076,4 +1084,4 @@ Implement comprehensive security measures and production optimization using ASP.
 
 ---
 
-**Note**: This guide provides a comprehensive foundation for building a broker trading application using the latest C#/.NET 8+ and Angular 17+ tech stack. The chosen technologies offer enterprise-grade performance, security, and scalability required for financial trading applications. Adjust the tech stack and features based on your specific requirements, team expertise, and target market. Always prioritize security and reliability when dealing with financial transactions and user data.
+**Note**: This guide provides a comprehensive foundation for building a broker trading application using the latest C#/.NET 10+ and Angular 22+ tech stack. The chosen technologies offer enterprise-grade performance, security, and scalability required for financial trading applications. Adjust the tech stack and features based on your specific requirements, team expertise, and target market. Always prioritize security and reliability when dealing with financial transactions and user data.
