@@ -71,6 +71,10 @@ builder.Services.AddMStockBrokerAdapter();
 
 // Broker session store: Redis-backed, with TTL matching session expiry.
 builder.Services.AddSingleton<IBrokerSessionStore, RedisBrokerSessionStore>();
+
+// Instrument master service: fetches, versions, and caches the broker instrument
+// list in Redis with stable InstrumentId mapping across daily refreshes.
+builder.Services.AddSingleton<IInstrumentMasterService, InstrumentMasterService>();
 builder.Services.AddStackExchangeRedisCache(options =>
 {
     options.Configuration = builder.Configuration.GetConnectionString("adesha-redis")

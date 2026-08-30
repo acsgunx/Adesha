@@ -9,7 +9,7 @@ namespace Adesha.Brokers.Abstractions.Models;
 /// </summary>
 public sealed class CanonicalInstrument
 {
-    public required InstrumentId InstrumentId { get; init; }
+    public required InstrumentId InstrumentId { get; set; }
     public required BrokerId BrokerId { get; init; }
 
     /// <summary>Broker's instrument token (numeric, broker-specific).</summary>
