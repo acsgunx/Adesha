@@ -1,0 +1,5 @@
+{
+  "appHost": {
+    "path": "src/Adesha.AppHost/Adesha.AppHost.csproj"
+  }
+}

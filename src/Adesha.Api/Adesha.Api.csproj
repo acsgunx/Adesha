@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="..\Adesha.ServiceDefaults\Adesha.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\Adesha.Application\Adesha.Application.csproj" />
+    <ProjectReference Include="..\Adesha.Infrastructure\Adesha.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="StackExchange.Redis" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Adesha.Api.Tests" />
+  </ItemGroup>
+</Project>

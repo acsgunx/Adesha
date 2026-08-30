@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: backend (build, test, format, migrations)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore
+        run: dotnet restore
+      - name: Format check
+        run: dotnet format --verify-no-changes
+      - name: Build
+        run: dotnet build --no-restore
+      - name: Test (Testcontainers integration tests need Docker, available on the runner)
+        run: dotnet test --no-build --logger "console;verbosity=normal"
+      - name: Migration applies to an empty database
+        env:
+          ADESHA_MIGRATIONS_CONNECTION: 'Host=localhost;Database=adesha_migrate_check;Username=postgres;Password=postgres'
+        run: |
+          docker run -d --name pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=adesha_migrate_check -p 5432:5432 postgres:16-alpine
+          dotnet ef database update --project src/Adesha.Infrastructure --startup-project src/Adesha.Infrastructure
+          docker stop pg && docker rm pg
+
+  frontend:
+    name: frontend (build, lint)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/Adesha.Web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: src/Adesha.Web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build

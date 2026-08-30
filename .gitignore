@@ -1,0 +1,26 @@
+## .NET
+bin/
+obj/
+artifacts/
+*.user
+*.suo
+.vs/
+TestResults/
+coverage/
+*.trx
+
+## Angular / Node
+node_modules/
+dist/
+.angular/
+npm-debug.log*
+
+## Local secrets & environment — never commit
+*.pfx
+*.key
+.env
+.env.*
+appsettings.*.local.json
+
+## OS
+.DS_Store

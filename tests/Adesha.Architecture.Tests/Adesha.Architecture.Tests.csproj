@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Adesha.Domain\Adesha.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Adesha.Application\Adesha.Application.csproj" />
+    <ProjectReference Include="..\..\src\Adesha.Infrastructure\Adesha.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Adesha.ServiceDefaults\Adesha.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\..\src\Adesha.Api\Adesha.Api.csproj" />
+  </ItemGroup>
+</Project>
