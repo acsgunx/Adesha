@@ -1,7 +1,9 @@
-# Broker Trading Application Development Guide
+# Adesha — Broker Trading Application Development Guide
 
 ## Overview
-This guide provides comprehensive recommendations for building a broker trading application that connects to multiple broker APIs, starting with mStock.com and expanding to Zerodha (Kite Connect) and other platforms in the future.
+This guide provides comprehensive recommendations for building **Adesha**, a broker trading application that connects to multiple broker APIs, starting with mStock.com and expanding to Zerodha (Kite Connect) and other platforms in the future.
+
+The name comes from Sanskrit *ādeśa* (आदेश), "an order, command, instruction" — and, in Sanskrit grammar, "a substitute", which is precisely the broker adapter pattern the system is built on. Namespaces and services use the `Adesha.*` / `adesha-*` prefix throughout.
 
 ## Recommended Tech Stack
 
@@ -301,12 +303,12 @@ Create a modern broker trading application with the following specifications:
 
 ## Initial Requirements
 1. Set up solution structure with separate projects:
-   - BrokerTradingApp.Web (Angular frontend)
-   - BrokerTradingApp.Api (ASP.NET Core Web API)
-   - BrokerTradingApp.Core (Business logic and interfaces)
-   - BrokerTradingApp.Infrastructure (Data access and external services)
-   - BrokerTradingApp.Brokers (Broker-specific implementations)
-   - BrokerTradingApp.Tests (Unit and integration tests)
+   - Adesha.Web (Angular frontend)
+   - Adesha.Api (ASP.NET Core Web API)
+   - Adesha.Core (Business logic and interfaces)
+   - Adesha.Infrastructure (Data access and external services)
+   - Adesha.Brokers (Broker-specific implementations)
+   - Adesha.Tests (Unit and integration tests)
 
 2. Configure .NET 10+ project with:
    - Nullable reference types enabled

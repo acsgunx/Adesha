@@ -1,7 +1,16 @@
-# Trading App — AI Build Prompt
+# Adesha — AI Build Prompt
 
-Paste-ready prompts for building a multi-broker trading application.
+Paste-ready prompts for building **Adesha**, a multi-broker trading application.
 Companion reference: `broker-trading-app-guide.md`.
+
+**On the name.** *Ādeśa* (Sanskrit आदेश) means "an order, command, instruction, precept,
+rule" — the core noun of the application, since every user action is an order issued to a
+broker. In Sanskrit grammar the same word also means "a substitute": one element standing
+in place of another under a common rule, which is exactly the broker adapter pattern this
+system is built on.
+
+To rename, replace `Adesha` throughout:
+`sed -i '' 's/Adesha/YourName/g' trading-app-ai-prompt.md broker-trading-app-guide.md`
 
 **How to use this file:** Give the AI the **Master Prompt** first. It establishes role,
 constraints, and domain rules that apply to every subsequent task. Then give one
@@ -22,8 +31,19 @@ important than feature count, delivery speed, or code elegance.
 
 # PRODUCT
 
-A self-hosted, single-tenant web application that lets its owner trade through multiple
-Indian brokers behind one interface.
+The application is named **Adesha** (Sanskrit आदेश, "an order, command, instruction").
+Use it consistently and do not abbreviate or re-brand it:
+
+- .NET root namespace and assembly prefix: `Adesha.*` (e.g. `Adesha.Domain`)
+- Solution file: `Adesha.sln`
+- Angular package name: `adesha-web`; UI title and browser tab: `Adesha`
+- Docker Compose services: `adesha-api`, `adesha-web`, `adesha-db`, `adesha-redis`
+- PostgreSQL database: `adesha`; Redis key prefix: `adesha:`
+- Configuration section root: `Adesha`; env var prefix: `ADESHA__`
+- Serilog application property: `Adesha`; OpenTelemetry service.name: `adesha-api`
+
+Adesha is a self-hosted, single-tenant web application that lets its owner trade through
+multiple Indian brokers behind one interface.
 
 - Broker 1 (must work end to end): m.Stock by Mirae Asset — https://tradingapi.mstock.com/
 - Broker 2 (add after broker 1 is proven): Zerodha Kite Connect — https://kite.trade/docs/connect/v3/
@@ -122,14 +142,14 @@ These break naive implementations. Handle them explicitly.
 
 Solution layout — enforce dependency direction strictly (Domain depends on nothing):
 
-  src/Trading.Domain          entities, value objects, state machines, domain rules. No IO.
-  src/Trading.Application     use cases, ports (interfaces), DTOs, validators.
-  src/Trading.Infrastructure  EF Core, Redis, Serilog, background services.
-  src/Trading.Brokers.Abstractions   IBrokerAdapter + canonical models + capability flags.
-  src/Trading.Brokers.MStock         m.Stock adapter. Referenced only by DI wiring.
-  src/Trading.Brokers.Zerodha        Zerodha adapter. Referenced only by DI wiring.
-  src/Trading.Api             ASP.NET Core host, endpoints, SignalR hubs, auth.
-  src/Trading.Web             Angular 22 app.
+  src/Adesha.Domain          entities, value objects, state machines, domain rules. No IO.
+  src/Adesha.Application     use cases, ports (interfaces), DTOs, validators.
+  src/Adesha.Infrastructure  EF Core, Redis, Serilog, background services.
+  src/Adesha.Brokers.Abstractions   IBrokerAdapter + canonical models + capability flags.
+  src/Adesha.Brokers.MStock         m.Stock adapter. Referenced only by DI wiring.
+  src/Adesha.Brokers.Zerodha        Zerodha adapter. Referenced only by DI wiring.
+  src/Adesha.Api             ASP.NET Core host, endpoints, SignalR hubs, auth.
+  src/Adesha.Web             Angular 22 app.
   tests/...                   mirrors src, one project per production project.
 
 Broker abstraction requirements:
@@ -220,7 +240,7 @@ Work Order 2 of 6: broker abstraction and the m.Stock adapter. Read-only operati
 
 Deliver:
 1. IBrokerAdapter, canonical models, BrokerCapabilities, and the canonical error taxonomy
-   in Trading.Brokers.Abstractions. Design the interface so a broker that lacks a feature
+   in Adesha.Brokers.Abstractions. Design the interface so a broker that lacks a feature
    is expressed via capabilities, not exceptions.
 2. m.Stock adapter implementing READ operations only: login (username/password -> OTP ->
    session token, plus TOTP verification path), funds/margin, instrument master CSV,
@@ -334,7 +354,7 @@ Deliver:
    the user can never misread which broker an order is going to.
 5. Tests mirroring the m.Stock adapter suite, using recorded fixtures.
 
-Report every file you had to touch outside Trading.Brokers.Zerodha and DI registration,
+Report every file you had to touch outside Adesha.Brokers.Zerodha and DI registration,
 and for each one explain whether it indicates a leak in the abstraction. Be blunt.
 ```
 
