@@ -1,6 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { UNREACHABLE_STATUSES } from '../core/api-errors';
 import { AuthService } from '../core/auth.service';
 import { TradingModeBannerComponent } from '../trading-mode-banner/trading-mode-banner.component';
 
@@ -79,9 +80,10 @@ function describeLoginFailure(error: unknown): string {
   if (!(error instanceof HttpErrorResponse)) {
     return 'Login failed. Please try again.';
   }
+  if (UNREACHABLE_STATUSES.has(error.status)) {
+    return 'Cannot reach the Adesha API. Check that the backend is running.';
+  }
   switch (error.status) {
-    case 0:
-      return 'Cannot reach the Adesha API. Check that the backend is running.';
     case 400:
       return 'Enter a username, a password, and a 6-digit TOTP code.';
     case 401:

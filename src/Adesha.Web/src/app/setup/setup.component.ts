@@ -3,6 +3,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { DomSanitizer } from '@angular/platform-browser';
 import { Router } from '@angular/router';
+import { UNREACHABLE_STATUSES } from '../core/api-errors';
 import { AuthService } from '../core/auth.service';
 import { TradingModeBannerComponent } from '../trading-mode-banner/trading-mode-banner.component';
 
@@ -132,9 +133,10 @@ function describeSetupFailure(error: unknown): string {
   if (!(error instanceof HttpErrorResponse)) {
     return 'Could not create the owner account. Please try again.';
   }
+  if (UNREACHABLE_STATUSES.has(error.status)) {
+    return 'Cannot reach the Adesha API. Check that the backend is running.';
+  }
   switch (error.status) {
-    case 0:
-      return 'Cannot reach the Adesha API. Check that the backend is running.';
     case 400:
       return 'The password must be at least 12 characters.';
     case 409:
