@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Net.Http.Headers;
 using System.Text.Json;
 using Adesha.Brokers.Abstractions;
 using Adesha.Brokers.Abstractions.Errors;
@@ -10,20 +9,23 @@ using Adesha.Domain.Primitives;
 namespace Adesha.Brokers.MStock;
 
 /// <summary>
-/// m.Stock by Mirae Asset broker adapter (Type A API).
-/// All endpoints confirmed from https://tradingapi.mstock.com/docs/v1/typeA/
+/// m.Stock by Mirae Asset broker adapter. Supports both API surfaces:
+/// <list type="bullet">
+/// <item><term>Type A</term><description>https://tradingapi.mstock.com/docs/v1/typeA/ — form-urlencoded auth.</description></item>
+/// <item><term>Type B</term><description>https://tradingapi.mstock.com/docs/v1/typeB/ — JSON auth.</description></item>
+/// </list>
 ///
-/// Auth flow: username/password -> OTP to registered mobile -> session/token (or
-/// session/verifytotp when TOTP is enabled). Tokens expire within 12 hours or at
-/// midnight, whichever is first — they cannot be refreshed headlessly.
+/// Auth flow (both types): username/password -> OTP to registered mobile -> session/token (or
+/// session/verifytotp when TOTP is enabled). TypeB additionally carries a refresh handle from
+/// the login response into the session step. Tokens expire within 12 hours or at midnight,
+/// whichever is first — they cannot be refreshed headlessly.
 ///
-/// Request encoding: form-urlencoded (not JSON) for POST endpoints.
-/// Required headers: X-Mirae-Version: 1, Authorization: token api_key:jwtToken.
+/// The type-specific differences (encoding, headers, request/response shapes) live in
+/// <see cref="IMStockAuthStrategy"/>; the read path is shared between the two types.
 /// </summary>
 public sealed class MStockAdapter : IBrokerAdapter
 {
-    private const string BaseUrl = "https://api.mstock.trade/openapi/typea";
-    private const string MiraeVersion = "1";
+    private const string ApiRoot = "https://api.mstock.trade/openapi";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -32,13 +34,20 @@ public sealed class MStockAdapter : IBrokerAdapter
 
     private readonly HttpClient _httpClient;
     private readonly string _apiKey;
+    private readonly IMStockAuthStrategy _auth;
+    private readonly string _baseUrl;
     private string? _accessToken;
     private string? _pendingLoginUsername;
+    private string? _pendingRefreshToken;
 
-    public MStockAdapter(HttpClient httpClient, MStockApiKey apiKey)
+    public MStockAdapter(HttpClient httpClient, MStockApiKey apiKey, MStockApiType apiType = MStockApiType.TypeA)
     {
         _httpClient = httpClient;
         _apiKey = apiKey.Value;
+        _auth = apiType == MStockApiType.TypeB
+            ? new MStockTypeBAuthStrategy()
+            : new MStockTypeAAuthStrategy();
+        _baseUrl = $"{ApiRoot}/{_auth.PathSegment}";
     }
 
     public BrokerId BrokerId => BrokerId.MStock;
@@ -74,21 +83,13 @@ public sealed class MStockAdapter : IBrokerAdapter
 
     public async Task InitiateLoginAsync(string username, string password, CancellationToken cancellationToken)
     {
-        // Step 1: POST /connect/login with username+password -> triggers OTP to registered mobile.
-        // No Authorization header here; only X-Mirae-Version and form-encoded body.
+        // Step 1: POST /connect/login -> triggers OTP to registered mobile (TypeA) or
+        // returns a refresh handle for the next step (TypeB).
         _pendingLoginUsername = username;
+        _pendingRefreshToken = null;
 
-        using var content = new FormUrlEncodedContent(new Dictionary<string, string>
-        {
-            ["username"] = username,
-            ["password"] = password,
-        });
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/connect/login")
-        {
-            Content = content,
-        };
-        request.Headers.Add("X-Mirae-Version", MiraeVersion);
+        using var request = _auth.BuildLoginRequest(username, password);
+        request.RequestUri = new Uri($"{_baseUrl}/connect/login");
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -98,64 +99,36 @@ public sealed class MStockAdapter : IBrokerAdapter
             throw MStockErrorMapper.MapError(response, body);
         }
 
-        var loginResult = JsonSerializer.Deserialize<MStockResponse<MStockLoginData>>(body, JsonOptions);
-        if (loginResult?.Status == "error")
-        {
-            throw MStockErrorMapper.MapBusinessError(loginResult);
-        }
+        _pendingRefreshToken = _auth.ProcessLoginResponse(body);
     }
 
     public async Task<BrokerSession> CompleteLoginWithOtpAsync(string otp, CancellationToken cancellationToken)
     {
-        // Step 2: POST /session/token with api_key + request_token(=OTP) + checksum.
-        // The checksum is a fixed value "L" per the docs (source identifier).
-        using var content = new FormUrlEncodedContent(new Dictionary<string, string>
-        {
-            ["api_key"] = _apiKey,
-            ["request_token"] = otp,
-            ["checksum"] = "L",
-        });
+        // Step 2: POST /session/token. TypeA sends api_key + request_token(=OTP) + checksum;
+        // TypeB sends refreshToken (from login) + otp.
+        using var request = _auth.BuildSessionTokenRequest(_apiKey, otp, _pendingRefreshToken);
+        request.RequestUri = new Uri($"{_baseUrl}/session/token");
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/session/token")
-        {
-            Content = content,
-        };
-        request.Headers.Add("X-Mirae-Version", MiraeVersion);
-
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            throw MStockErrorMapper.MapError(response, body);
-        }
-
-        var sessionResult = JsonSerializer.Deserialize<MStockResponse<MStockSessionData>>(body, JsonOptions);
-        if (sessionResult?.Status == "error" || sessionResult?.Data is null)
-        {
-            throw MStockErrorMapper.MapBusinessError(sessionResult ?? new MStockResponse<MStockSessionData>());
-        }
-
-        _accessToken = sessionResult.Data.AccessToken;
-        return BuildSession(sessionResult.Data);
+        var session = await SendSessionRequestAsync(request, cancellationToken);
+        _accessToken = session.AccessToken;
+        return session;
     }
 
     public async Task<BrokerSession> CompleteLoginWithTotpAsync(string totp, CancellationToken cancellationToken)
     {
-        // TOTP path: POST /session/verifytotp with api_key + totp.
-        // Used when TOTP is enabled on the m.Stock account (OTP is not sent in this case).
-        using var content = new FormUrlEncodedContent(new Dictionary<string, string>
-        {
-            ["api_key"] = _apiKey,
-            ["totp"] = totp,
-        });
+        // TOTP path: POST /session/verifytotp. Used when TOTP is enabled on the m.Stock
+        // account (OTP is not sent in this case). TypeA sends api_key + totp; TypeB sends
+        // refreshToken (from login) + totp.
+        using var request = _auth.BuildVerifyTotpRequest(_apiKey, totp, _pendingRefreshToken);
+        request.RequestUri = new Uri($"{_baseUrl}/session/verifytotp");
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/session/verifytotp")
-        {
-            Content = content,
-        };
-        request.Headers.Add("X-Mirae-Version", MiraeVersion);
+        var session = await SendSessionRequestAsync(request, cancellationToken);
+        _accessToken = session.AccessToken;
+        return session;
+    }
 
+    private async Task<BrokerSession> SendSessionRequestAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
         var response = await _httpClient.SendAsync(request, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -164,14 +137,7 @@ public sealed class MStockAdapter : IBrokerAdapter
             throw MStockErrorMapper.MapError(response, body);
         }
 
-        var sessionResult = JsonSerializer.Deserialize<MStockResponse<MStockSessionData>>(body, JsonOptions);
-        if (sessionResult?.Status == "error" || sessionResult?.Data is null)
-        {
-            throw MStockErrorMapper.MapBusinessError(sessionResult ?? new MStockResponse<MStockSessionData>());
-        }
-
-        _accessToken = sessionResult.Data.AccessToken;
-        return BuildSession(sessionResult.Data);
+        return _auth.ParseSessionResponse(body);
     }
 
     public async Task LogoutAsync(CancellationToken cancellationToken)
@@ -338,10 +304,10 @@ public sealed class MStockAdapter : IBrokerAdapter
             throw new BrokerException(BrokerErrorKind.AuthExpired, "No active broker session. Login required.");
         }
 
-        var request = new HttpRequestMessage(method, $"{BaseUrl}{path}");
-        request.Headers.Add("X-Mirae-Version", MiraeVersion);
-        // m.Stock auth format: "token api_key:jwtToken" (confirmed in docs).
-        request.Headers.Authorization = new AuthenticationHeaderValue("token", $"{_apiKey}:{_accessToken}");
+        var request = new HttpRequestMessage(method, $"{_baseUrl}{path}");
+        // Auth header shape is type-specific (TypeA: "token api_key:jwtToken",
+        // TypeB: "Bearer jwtToken" + X-PrivateKey).
+        _auth.ApplyAuth(request, _apiKey, _accessToken);
         return request;
     }
 
@@ -363,38 +329,6 @@ public sealed class MStockAdapter : IBrokerAdapter
         }
 
         return result?.Data;
-    }
-
-    private static BrokerSession BuildSession(MStockSessionData data)
-    {
-        // Token expires at midnight IST of the generation day, or 12 hours, whichever is first.
-        // We use the conservative 12-hour window from the generation time.
-        var loginTime = ParseLoginTime(data.LoginTime);
-        var expiresAt = loginTime.AddHours(12);
-
-        return new BrokerSession
-        {
-            BrokerId = BrokerId.MStock,
-            AccessToken = data.AccessToken ?? throw new BrokerException(BrokerErrorKind.AuthFailed, "No access token in session response."),
-            UserId = data.UserId ?? data.UserName ?? "unknown",
-            ExpiresAtUtc = expiresAt,
-            Exchanges = data.Exchanges ?? [],
-            Products = data.Products ?? [],
-            OrderTypes = data.OrderTypes ?? [],
-        };
-    }
-
-    private static DateTimeOffset ParseLoginTime(string? loginTime)
-    {
-        // Docs show format "2024-09-26 03:34:48" (IST, no timezone).
-        if (DateTimeOffset.TryParseExact(loginTime, "yyyy-MM-dd HH:mm:ss",
-                CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal,
-                out var parsed))
-        {
-            return parsed.ToUniversalTime();
-        }
-
-        return DateTimeOffset.UtcNow;
     }
 
     private static Money ParseMoney(string? value) =>

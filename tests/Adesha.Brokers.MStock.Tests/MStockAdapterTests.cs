@@ -13,13 +13,13 @@ public class MStockAdapterTests
     private const string ApiKey = "test-api-key";
     private const string AccessToken = "test-access-token";
 
-    private static MStockAdapter CreateAdapter(Func<HttpRequestMessage, HttpResponseMessage> handler)
+    private static MStockAdapter CreateAdapter(Func<HttpRequestMessage, HttpResponseMessage> handler, MStockApiType apiType = MStockApiType.TypeA)
     {
         var httpClient = new HttpClient(new StubHandler(handler))
         {
             BaseAddress = new Uri("https://api.mstock.trade"),
         };
-        return new MStockAdapter(httpClient, new MStockApiKey(ApiKey));
+        return new MStockAdapter(httpClient, new MStockApiKey(ApiKey), apiType);
     }
 
     private static void SetSession(MStockAdapter adapter)
@@ -560,6 +560,193 @@ public class MStockAdapterTests
         var adapter = CreateAuthenticatedAdapter(_ => Ok(new { status = "success", data = new { } }));
         var quotes = await adapter.GetLtpQuotesAsync([], CancellationToken.None);
         Assert.Empty(quotes);
+    }
+
+    // --- Type B auth (https://tradingapi.mstock.com/docs/v1/typeB/User/) ---
+
+    private const string TypeBRefreshHandle = "697c39bf-9411-46b0-81c2-67448ee99c72";
+    private const string TypeBJwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.payload.signature";
+
+    private static MStockAdapter CreateTypeBAdapter(Func<HttpRequestMessage, HttpResponseMessage> handler)
+        => CreateAdapter(handler, MStockApiType.TypeB);
+
+    [Fact]
+    public async Task TypeB_InitiateLogin_SendsJsonClientCodeAndCapturesRefreshHandle()
+    {
+        string? capturedBody = null;
+        string? capturedContentType = null;
+        var adapter = CreateTypeBAdapter(req =>
+        {
+            capturedBody = req.Content?.ReadAsStringAsync().Result;
+            capturedContentType = req.Content?.Headers.ContentType?.MediaType;
+            return Ok(new
+            {
+                status = "true",
+                message = "Please enter the OTP",
+                data = new { jwtToken = TypeBRefreshHandle, refreshToken = "", feedToken = "", state = "live" },
+            });
+        });
+
+        await adapter.InitiateLoginAsync("myuser", "mypass", CancellationToken.None);
+
+        Assert.NotNull(capturedBody);
+        Assert.Equal("application/json", capturedContentType);
+        Assert.Contains("\"clientcode\":\"myuser\"", capturedBody);
+        Assert.Contains("\"password\":\"mypass\"", capturedBody);
+    }
+
+    [Fact]
+    public async Task TypeB_InitiateLogin_ThrowsOnStatusFalse()
+    {
+        var adapter = CreateTypeBAdapter(_ => Ok(new
+        {
+            status = "false",
+            message = "Invalid username or password. 9 attempts remaining",
+            errorcode = "MA500",
+            data = (object?)null,
+        }));
+
+        var ex = await Assert.ThrowsAsync<BrokerException>(
+            () => adapter.InitiateLoginAsync("bad", "bad", CancellationToken.None));
+
+        Assert.Contains("Invalid username or password", ex.Message);
+    }
+
+    [Fact]
+    public async Task TypeB_CompleteLoginWithOtp_SendsRefreshTokenAndOtp_ReturnsSession()
+    {
+        string? capturedBody = null;
+        string? capturedPrivateKey = null;
+        var adapter = CreateTypeBAdapter(req =>
+        {
+            // First call: connect/login. Second call: session/token.
+            var path = req.RequestUri?.AbsolutePath ?? string.Empty;
+            if (path.EndsWith("/connect/login", StringComparison.OrdinalIgnoreCase))
+            {
+                return Ok(new
+                {
+                    status = "true",
+                    data = new { jwtToken = TypeBRefreshHandle, refreshToken = "", feedToken = "", state = "live" },
+                });
+            }
+
+            capturedBody = req.Content?.ReadAsStringAsync().Result;
+            capturedPrivateKey = req.Headers.TryGetValues("X-PrivateKey", out var pk) ? pk.FirstOrDefault() : null;
+            return Ok(new
+            {
+                status = "true",
+                data = new
+                {
+                    jwtToken = TypeBJwt,
+                    refreshToken = TypeBRefreshHandle,
+                    feedToken = "feed",
+                    ClientName = "RAHUL",
+                    ClientId = "MA68XXXXX",
+                    exchanges = new[] { "NSE", "NFO" },
+                },
+            });
+        });
+
+        await adapter.InitiateLoginAsync("myuser", "mypass", CancellationToken.None);
+        var session = await adapter.CompleteLoginWithOtpAsync("123456", CancellationToken.None);
+
+        Assert.Equal(BrokerId.MStock, session.BrokerId);
+        Assert.Equal(TypeBJwt, session.AccessToken);
+        Assert.Equal("MA68XXXXX", session.UserId);
+        Assert.Contains("NSE", session.Exchanges);
+        Assert.False(session.IsExpired);
+        Assert.NotNull(capturedBody);
+        Assert.Contains($"\"refreshToken\":\"{TypeBRefreshHandle}\"", capturedBody);
+        Assert.Contains("\"otp\":\"123456\"", capturedBody);
+        Assert.Equal(ApiKey, capturedPrivateKey);
+    }
+
+    [Fact]
+    public async Task TypeB_CompleteLoginWithTotp_SendsRefreshTokenAndTotp_ReturnsSession()
+    {
+        string? capturedBody = null;
+        var adapter = CreateTypeBAdapter(req =>
+        {
+            var path = req.RequestUri?.AbsolutePath ?? string.Empty;
+            if (path.EndsWith("/connect/login", StringComparison.OrdinalIgnoreCase))
+            {
+                return Ok(new
+                {
+                    status = "true",
+                    data = new { jwtToken = TypeBRefreshHandle, refreshToken = "", feedToken = "", state = "live" },
+                });
+            }
+
+            capturedBody = req.Content?.ReadAsStringAsync().Result;
+            // verifytotp success response uses a boolean status (normalized by the converter).
+            return Ok(new
+            {
+                status = true,
+                data = new
+                {
+                    ClientName = "RAHUL",
+                    ClientId = "MA68XXXXX",
+                    exchanges = new[] { "NSE" },
+                    jwtToken = TypeBJwt,
+                    refreshToken = TypeBRefreshHandle,
+                    feedToken = "feed",
+                },
+            });
+        });
+
+        await adapter.InitiateLoginAsync("myuser", "mypass", CancellationToken.None);
+        var session = await adapter.CompleteLoginWithTotpAsync("654321", CancellationToken.None);
+
+        Assert.Equal(TypeBJwt, session.AccessToken);
+        Assert.NotNull(capturedBody);
+        Assert.Contains($"\"refreshToken\":\"{TypeBRefreshHandle}\"", capturedBody);
+        Assert.Contains("\"totp\":\"654321\"", capturedBody);
+    }
+
+    [Fact]
+    public async Task TypeB_CompleteLoginWithOtp_ThrowsOnExpiredOtp()
+    {
+        var adapter = CreateTypeBAdapter(_ => Ok(new
+        {
+            status = "false",
+            message = "Entered OTP has been expired. Please regenerate a new one & enter the same.",
+            errorcode = "MA500",
+            data = (object?)null,
+        }));
+
+        var ex = await Assert.ThrowsAsync<BrokerException>(
+            () => adapter.CompleteLoginWithOtpAsync("000000", CancellationToken.None));
+
+        Assert.Contains("OTP", ex.Message);
+    }
+
+    [Fact]
+    public async Task TypeB_AuthenticatedRequest_UsesBearerAndPrivateKeyHeaders()
+    {
+        string? capturedAuthScheme = null;
+        string? capturedAuthParam = null;
+        string? capturedPrivateKey = null;
+        var adapter = CreateTypeBAdapter(req =>
+        {
+            capturedAuthScheme = req.Headers.Authorization?.Scheme;
+            capturedAuthParam = req.Headers.Authorization?.Parameter;
+            capturedPrivateKey = req.Headers.TryGetValues("X-PrivateKey", out var pk) ? pk.FirstOrDefault() : null;
+            return Ok(new { status = "success", data = Array.Empty<object>() });
+        });
+
+        adapter.SetSession(new BrokerSession
+        {
+            BrokerId = BrokerId.MStock,
+            AccessToken = TypeBJwt,
+            UserId = "MA68XXXXX",
+            ExpiresAtUtc = DateTimeOffset.UtcNow.AddHours(10),
+        });
+
+        await adapter.GetFundsAsync(CancellationToken.None);
+
+        Assert.Equal("Bearer", capturedAuthScheme);
+        Assert.Equal(TypeBJwt, capturedAuthParam);
+        Assert.Equal(ApiKey, capturedPrivateKey);
     }
 
     // --- Helpers ---

@@ -45,6 +45,20 @@ public static class ServiceCollectionExtensions
             return new MStockApiKey(apiKey);
         });
 
+        // Select the m.Stock API surface (TypeA form-urlencoded or TypeB JSON).
+        // Defaults to TypeA to preserve existing behaviour. Registered via the
+        // non-generic overload because MStockApiType is a value type (enum).
+        services.AddSingleton(typeof(MStockApiType), sp =>
+        {
+            var config = sp.GetRequiredService<IConfiguration>();
+            var raw = config["MStock:ApiType"];
+            return raw is null
+                ? (object)MStockApiType.TypeA
+                : Enum.TryParse<MStockApiType>(raw, ignoreCase: true, out var apiType)
+                    ? apiType
+                    : throw new InvalidOperationException($"MStock:ApiType '{raw}' is not valid. Use 'TypeA' or 'TypeB'.");
+        });
+
         var httpClientBuilder = services.AddHttpClient<MStockAdapter>((sp, client) =>
         {
             client.BaseAddress = new Uri(baseUrl);
