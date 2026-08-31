@@ -1,6 +1,9 @@
-import { Component, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { DomSanitizer } from '@angular/platform-browser';
 import { Router } from '@angular/router';
+import { UNREACHABLE_STATUSES } from '../core/api-errors';
 import { AuthService } from '../core/auth.service';
 import { TradingModeBannerComponent } from '../trading-mode-banner/trading-mode-banner.component';
 
@@ -27,7 +30,7 @@ import { TradingModeBannerComponent } from '../trading-mode-banner/trading-mode-
         <div class="totp">
           <p>Scan this in your authenticator app, then enter the current code.</p>
           <code class="secret">{{ sharedKey() }}</code>
-          <a [href]="otpauthUri()" target="_blank">Open in authenticator</a>
+          <a [href]="otpauthLink()" target="_blank" rel="noopener">Open in authenticator</a>
           <form [formGroup]="confirmForm" (ngSubmit)="onConfirm()">
             <label for="totpCode">Current TOTP code</label>
             <input id="totpCode" formControlName="totpCode" type="text" inputmode="numeric" pattern="[0-9]*" />
@@ -72,11 +75,17 @@ export class SetupComponent {
   private readonly fb = inject(FormBuilder);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly sanitizer = inject(DomSanitizer);
 
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
   readonly sharedKey = signal<string | null>(null);
   readonly otpauthUri = signal<string | null>(null);
+  // Angular blocks unknown URL schemes; this otpauth:// URI is minted by our own API.
+  readonly otpauthLink = computed(() => {
+    const uri = this.otpauthUri();
+    return uri === null ? null : this.sanitizer.bypassSecurityTrustUrl(uri);
+  });
 
   readonly form = this.fb.group({
     username: ['owner', [Validators.required]],
@@ -96,8 +105,8 @@ export class SetupComponent {
       const result = await this.auth.setup(v.username!, v.password!);
       this.sharedKey.set(result.sharedKey);
       this.otpauthUri.set(result.otpauthUri);
-    } catch {
-      this.error.set('Could not create owner. An owner may already exist.');
+    } catch (error: unknown) {
+      this.error.set(describeSetupFailure(error));
     } finally {
       this.loading.set(false);
     }
@@ -117,5 +126,22 @@ export class SetupComponent {
     } finally {
       this.loading.set(false);
     }
+  }
+}
+
+function describeSetupFailure(error: unknown): string {
+  if (!(error instanceof HttpErrorResponse)) {
+    return 'Could not create the owner account. Please try again.';
+  }
+  if (UNREACHABLE_STATUSES.has(error.status)) {
+    return 'Cannot reach the Adesha API. Check that the backend is running.';
+  }
+  switch (error.status) {
+    case 400:
+      return 'The password must be at least 12 characters.';
+    case 409:
+      return 'An owner already exists. Log in instead, or re-enter the original owner credentials to finish authenticator setup.';
+    default:
+      return 'Could not create the owner account. Check the API logs.';
   }
 }

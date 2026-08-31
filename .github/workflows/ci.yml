@@ -27,12 +27,14 @@ jobs:
         env:
           ADESHA_MIGRATIONS_CONNECTION: 'Host=localhost;Database=adesha_migrate_check;Username=postgres;Password=postgres'
         run: |
+          dotnet tool restore
           docker run -d --name pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=adesha_migrate_check -p 5432:5432 postgres:16-alpine
+          until docker exec pg pg_isready -U postgres -d adesha_migrate_check; do sleep 1; done
           dotnet ef database update --project src/Adesha.Infrastructure --startup-project src/Adesha.Infrastructure
           docker stop pg && docker rm pg
 
   frontend:
-    name: frontend (build, lint)
+    name: frontend (build, lint, test)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -46,4 +48,5 @@ jobs:
           cache-dependency-path: src/Adesha.Web/package-lock.json
       - run: npm ci
       - run: npm run lint
+      - run: npm test -- --watch=false
       - run: npm run build
