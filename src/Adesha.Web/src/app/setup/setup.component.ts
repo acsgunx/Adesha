@@ -21,6 +21,12 @@ import { TradingModeBannerComponent } from '../trading-mode-banner/trading-mode-
           <input id="username" formControlName="username" type="text" />
           <label for="password">Password</label>
           <input id="password" formControlName="password" type="password" />
+          @if (form.controls.password.dirty && form.controls.password.hasError('minlength')) {
+            <p class="error">Password must be at least 12 characters.</p>
+          }
+          @if (form.controls.password.dirty && form.controls.password.hasError('required')) {
+            <p class="error">Password is required.</p>
+          }
           <button type="submit" [disabled]="form.invalid || loading()">Create owner</button>
           @if (error()) {
             <p class="error">{{ error() }}</p>
