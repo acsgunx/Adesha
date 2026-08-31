@@ -46,19 +46,33 @@ public static class AuthEndpoints
             return Results.ValidationProblem(validation.ToDictionary());
         }
 
-        if (await userManager.Users.AnyAsync(cancellationToken))
+        var existing = await userManager.Users.FirstOrDefaultAsync(cancellationToken);
+        AdeshaUser user;
+        if (existing is not null)
         {
-            return Results.Conflict(new { error = "Owner account already exists." });
-        }
-
-        var user = new AdeshaUser { UserName = request.Username };
-        var result = await userManager.CreateAsync(user, request.Password);
-        if (!result.Succeeded)
-        {
-            return Results.ValidationProblem(new Dictionary<string, string[]>
+            // Setup abandoned before TOTP confirmation leaves an unusable account. Re-running
+            // setup with the same credentials re-issues the authenticator key instead of
+            // stranding the owner; anything else is a duplicate-owner attempt.
+            if (existing.TwoFactorEnabled
+                || existing.NormalizedUserName != userManager.NormalizeName(request.Username)
+                || !await userManager.CheckPasswordAsync(existing, request.Password))
             {
-                ["password"] = [.. result.Errors.Select(e => e.Description)],
-            });
+                return Results.Conflict(new { error = "Owner account already exists." });
+            }
+
+            user = existing;
+        }
+        else
+        {
+            user = new AdeshaUser { UserName = request.Username };
+            var result = await userManager.CreateAsync(user, request.Password);
+            if (!result.Succeeded)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["password"] = [.. result.Errors.Select(e => e.Description)],
+                });
+            }
         }
 
         await userManager.ResetAuthenticatorKeyAsync(user);
@@ -68,7 +82,7 @@ public static class AuthEndpoints
         await auditWriter.AppendAsync(new AuditRecord
         {
             Actor = user.Id.ToString(),
-            Action = "AppAccount.OwnerCreated",
+            Action = existing is null ? "AppAccount.OwnerCreated" : "AppAccount.OwnerTotpKeyReissued",
             EntityType = nameof(AdeshaUser),
             EntityId = user.Id.ToString(),
             AfterState = $$"""{"username":"{{request.Username}}"}""",

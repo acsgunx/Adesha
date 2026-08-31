@@ -54,10 +54,24 @@ public sealed class AuthFlowTests(AdeshaApiFactory factory) : IClassFixture<Ades
             Assert.Fail($"Premature login returned {premature.StatusCode}: {body}");
         }
 
+        // 4b. Setup stays required until TOTP is confirmed, and an abandoned enrollment can be resumed
+        // with the same credentials, which issues a fresh shared key.
+        var stillRequired = await client.GetFromJsonAsync<JsonElement>("/api/system/setup-required");
+        Assert.True(stillRequired.GetProperty("setupRequired").GetBoolean());
+
+        var resume = await client.PostAsJsonAsync("/api/auth/setup",
+            new { username = Username, password = Password });
+        Assert.Equal(HttpStatusCode.OK, resume.StatusCode);
+        setup = await resume.Content.ReadFromJsonAsync<SetupResponse>(Json);
+        Assert.NotNull(setup);
+
         // 5. Confirm TOTP with a real RFC 6238 code.
         var confirm = await client.PostAsJsonAsync("/api/auth/setup/confirm-totp",
             new { username = Username, password = Password, totpCode = TotpGenerator.GenerateCode(setup.SharedKey) });
         Assert.Equal(HttpStatusCode.OK, confirm.StatusCode);
+
+        var setupDone = await client.GetFromJsonAsync<JsonElement>("/api/system/setup-required");
+        Assert.False(setupDone.GetProperty("setupRequired").GetBoolean());
 
         // 6. Wrong TOTP code is rejected.
         var badTotp = await client.PostAsJsonAsync("/api/auth/login",

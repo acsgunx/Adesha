@@ -1,6 +1,6 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
 import { AuthService } from '../core/auth.service';
 import { TradingModeBannerComponent } from '../trading-mode-banner/trading-mode-banner.component';
 
@@ -51,14 +51,13 @@ import { TradingModeBannerComponent } from '../trading-mode-banner/trading-mode-
 export class LoginComponent {
   private readonly fb = inject(FormBuilder);
   private readonly auth = inject(AuthService);
-  private readonly router = inject(Router);
 
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
 
   readonly form = this.fb.group({
     username: ['', [Validators.required]],
-    password: ['', [Validators.required, Validators.minLength(12)]],
+    password: ['', [Validators.required]],
     totpCode: ['', [Validators.required, Validators.pattern(/^[0-9]{6}$/)]],
   });
 
@@ -69,9 +68,29 @@ export class LoginComponent {
     const v = this.form.value;
     try {
       await this.auth.login(v.username!, v.password!, v.totpCode!);
-    } catch {
-      this.error.set('Login failed. Check your password and TOTP code.');
+    } catch (error: unknown) {
+      this.error.set(describeLoginFailure(error));
       this.loading.set(false);
     }
+  }
+}
+
+function describeLoginFailure(error: unknown): string {
+  if (!(error instanceof HttpErrorResponse)) {
+    return 'Login failed. Please try again.';
+  }
+  switch (error.status) {
+    case 0:
+      return 'Cannot reach the Adesha API. Check that the backend is running.';
+    case 400:
+      return 'Enter a username, a password, and a 6-digit TOTP code.';
+    case 401:
+      return 'Invalid username, password, or TOTP code.';
+    case 403:
+      return 'Authenticator setup was never completed for this account. Re-run owner setup at /setup.';
+    case 423:
+      return 'Account locked after too many failed attempts. Try again in 15 minutes.';
+    default:
+      return 'Login failed because the server returned an error. Check the API logs.';
   }
 }
