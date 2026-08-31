@@ -17,6 +17,10 @@ constraints, and domain rules that apply to every subsequent task. Then give one
 **Work Order** at a time. Do not paste all work orders at once — a trading system built
 in one shot will be wrong in ways you cannot see.
 
+**How to run the app:** Use `./dev.sh` from the repo root to kill any running instance,
+clean, build, and launch the full stack via Aspire in one command. See `dev-scripts.md`
+for all commands used during development, organized by work order.
+
 ---
 
 ## Master Prompt (paste once, at the start of every session)
@@ -292,6 +296,9 @@ Do NOT touch broker APIs, orders, or market data yet.
 
 Then tell me exactly how to run it and how to verify each numbered item myself, including
 where in the Aspire dashboard to look to confirm redaction is working.
+
+Keep all development scripts and commands in `dev-scripts.md` organized by work order,
+and maintain a `dev.sh` script that kills, cleans, builds, and runs the app in one command.
 ```
 
 ---
@@ -327,6 +334,9 @@ Deliver:
 For any endpoint, field, or error code you cannot confirm in the official m.Stock docs,
 list it under "NEEDS VERIFICATION" instead of guessing. I would rather have a gap than a
 wrong assumption in an order path.
+
+Update `dev-scripts.md` with all commands used during this work order, and ensure `dev.sh`
+still works after the broker projects are added.
 ```
 
 ---
