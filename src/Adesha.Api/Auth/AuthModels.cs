@@ -41,8 +41,12 @@ public sealed class LoginRequest
     [JsonPropertyName("password")]
     public required string Password { get; init; }
 
+    /// <summary>
+    /// TOTP code. Required only when the account has two-factor authentication enabled;
+    /// omitted for password-only login.
+    /// </summary>
     [JsonPropertyName("totpCode")]
-    public required string TotpCode { get; init; }
+    public string? TotpCode { get; init; }
 }
 
 public sealed class TokenPairResponse
@@ -88,7 +92,10 @@ public sealed class LoginRequestValidator : AbstractValidator<LoginRequest>
     {
         RuleFor(r => r.Username).NotEmpty();
         RuleFor(r => r.Password).NotEmpty();
-        RuleFor(r => r.TotpCode).NotEmpty().Matches("^[0-9]{6}$");
+        // totpCode is optional; when supplied it must be a 6-digit code.
+        RuleFor(r => r.TotpCode)
+            .Matches("^[0-9]{6}$")
+            .When(r => !string.IsNullOrEmpty(r.TotpCode));
     }
 }
 

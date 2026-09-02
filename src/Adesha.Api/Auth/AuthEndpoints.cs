@@ -47,34 +47,27 @@ public static class AuthEndpoints
         }
 
         var existing = await userManager.Users.FirstOrDefaultAsync(cancellationToken);
-        AdeshaUser user;
         if (existing is not null)
         {
-            // Setup abandoned before TOTP confirmation leaves an unusable account. Re-running
-            // setup with the same credentials re-issues the authenticator key instead of
-            // stranding the owner; anything else is a duplicate-owner attempt.
-            if (existing.TwoFactorEnabled
-                || existing.NormalizedUserName != userManager.NormalizeName(request.Username)
-                || !await userManager.CheckPasswordAsync(existing, request.Password))
-            {
-                return Results.Conflict(new { error = "Owner account already exists." });
-            }
-
-            user = existing;
+            // Single-tenant: only one owner account may exist. TOTP is optional, so an
+            // account without a confirmed authenticator is still usable and is not a
+            // resumable setup state.
+            return Results.Conflict(new { error = "Owner account already exists." });
         }
-        else
+
+        var user = new AdeshaUser { UserName = request.Username };
+        var result = await userManager.CreateAsync(user, request.Password);
+        if (!result.Succeeded)
         {
-            user = new AdeshaUser { UserName = request.Username };
-            var result = await userManager.CreateAsync(user, request.Password);
-            if (!result.Succeeded)
+            return Results.ValidationProblem(new Dictionary<string, string[]>
             {
-                return Results.ValidationProblem(new Dictionary<string, string[]>
-                {
-                    ["password"] = [.. result.Errors.Select(e => e.Description)],
-                });
-            }
+                ["password"] = [.. result.Errors.Select(e => e.Description)],
+            });
         }
 
+        // Provision an authenticator key so the owner can optionally enable TOTP right away.
+        // The account is usable for password-only login immediately; confirming the code via
+        // /api/auth/setup/confirm-totp is what flips TwoFactorEnabled on.
         await userManager.ResetAuthenticatorKeyAsync(user);
         var sharedKey = await userManager.GetAuthenticatorKeyAsync(user)
             ?? throw new InvalidOperationException("Authenticator key generation failed.");
@@ -82,7 +75,7 @@ public static class AuthEndpoints
         await auditWriter.AppendAsync(new AuditRecord
         {
             Actor = user.Id.ToString(),
-            Action = existing is null ? "AppAccount.OwnerCreated" : "AppAccount.OwnerTotpKeyReissued",
+            Action = "AppAccount.OwnerCreated",
             EntityType = nameof(AdeshaUser),
             EntityId = user.Id.ToString(),
             AfterState = $$"""{"username":"{{request.Username}}"}""",
@@ -136,8 +129,10 @@ public static class AuthEndpoints
     }
 
     /// <summary>
-    /// Password + mandatory TOTP in a single step. Failed TOTP counts toward lockout,
-    /// so an attacker with the password cannot grind codes indefinitely.
+    /// Password login with optional TOTP. When the account has two-factor authentication
+    /// enabled a valid TOTP code is required; otherwise the password alone authenticates the
+    /// owner. Failed TOTP attempts count toward lockout so an attacker with the password
+    /// cannot grind codes indefinitely.
     /// </summary>
     private static async Task<IResult> LoginAsync(
         LoginRequest request,
@@ -171,20 +166,18 @@ public static class AuthEndpoints
             return Results.Unauthorized();
         }
 
-        if (!user.TwoFactorEnabled)
+        if (user.TwoFactorEnabled)
         {
-            return Results.Problem(
-                statusCode: StatusCodes.Status403Forbidden,
-                title: "TOTP setup is not complete.",
-                detail: "Finish authenticator setup via /api/auth/setup/confirm-totp before logging in.");
-        }
-
-        var codeValid = await userManager.VerifyTwoFactorTokenAsync(
-            user, userManager.Options.Tokens.AuthenticatorTokenProvider, request.TotpCode);
-        if (!codeValid)
-        {
-            await userManager.AccessFailedAsync(user);
-            return Results.Unauthorized();
+            // Account has TOTP enabled: a valid code is mandatory. A missing or invalid code
+            // counts toward lockout just like a bad password.
+            var codeValid = !string.IsNullOrEmpty(request.TotpCode)
+                && await userManager.VerifyTwoFactorTokenAsync(
+                    user, userManager.Options.Tokens.AuthenticatorTokenProvider, request.TotpCode);
+            if (!codeValid)
+            {
+                await userManager.AccessFailedAsync(user);
+                return Results.Unauthorized();
+            }
         }
 
         await userManager.ResetAccessFailedCountAsync(user);

@@ -34,7 +34,10 @@ import { TradingModeBannerComponent } from '../trading-mode-banner/trading-mode-
         </form>
       } @else {
         <div class="totp">
-          <p>Scan this in your authenticator app, then enter the current code.</p>
+          <p>
+            TOTP is optional. You can enable it now by scanning the secret in your authenticator
+            app and entering the current code, or skip and log in with a password alone.
+          </p>
           <code class="secret">{{ sharedKey() }}</code>
           <a [href]="otpauthLink()" target="_blank" rel="noopener">Open in authenticator</a>
           <form [formGroup]="confirmForm" (ngSubmit)="onConfirm()">
@@ -42,6 +45,7 @@ import { TradingModeBannerComponent } from '../trading-mode-banner/trading-mode-
             <input id="totpCode" formControlName="totpCode" type="text" inputmode="numeric" pattern="[0-9]*" />
             <button type="submit" [disabled]="confirmForm.invalid || loading()">Confirm and enable</button>
           </form>
+          <button type="button" class="skip" [disabled]="loading()" (click)="onSkip()">Skip — password only</button>
           @if (error()) {
             <p class="error">{{ error() }}</p>
           }
@@ -73,6 +77,10 @@ import { TradingModeBannerComponent } from '../trading-mode-banner/trading-mode-
         word-break: break-all;
         background: #f5f5f5;
         padding: 0.5rem;
+      }
+      .skip {
+        margin-top: 0.5rem;
+        background: transparent;
       }
     `,
   ],
@@ -132,6 +140,13 @@ export class SetupComponent {
     } finally {
       this.loading.set(false);
     }
+  }
+
+  /** TOTP is optional: the owner account is already usable with a password alone. */
+  async onSkip(): Promise<void> {
+    // An owner now exists, so /api/system/setup-required returns false; the login guard
+    // refreshes that state via loadStatus() and admits the login page.
+    await this.router.navigate(['/login']);
   }
 }
 

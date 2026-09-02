@@ -21,10 +21,10 @@ public static class SystemEndpoints
                 environment = env.EnvironmentName,
             }));
 
-        // Setup stays "required" until an owner has completed TOTP enrolment: an account
-        // without a confirmed authenticator can never log in, so the shell must offer setup.
+        // Setup is required until an owner account exists. TOTP is optional, so an account
+        // without a confirmed authenticator can still log in with a password alone.
         group.MapGet("/setup-required", async (UserManager<AdeshaUser> userManager, CancellationToken ct) =>
-            Results.Ok(new { setupRequired = !await userManager.Users.AnyAsync(u => u.TwoFactorEnabled, ct) }));
+            Results.Ok(new { setupRequired = !await userManager.Users.AnyAsync(ct) }));
 
         return routes;
     }

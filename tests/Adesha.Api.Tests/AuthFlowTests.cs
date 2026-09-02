@@ -7,8 +7,8 @@ namespace Adesha.Api.Tests;
 
 /// <summary>
 /// End-to-end auth flow against real PostgreSQL and Redis (Testcontainers):
-/// owner setup -> mandatory TOTP -> login -> JWT access -> refresh rotation ->
-/// replay detection -> lockout.
+/// owner setup (TOTP optional) -> password-only login -> optional TOTP enrolment ->
+/// password+TOTP login -> JWT access -> refresh rotation -> replay detection -> lockout.
 /// </summary>
 public sealed class AuthFlowTests(AdeshaApiFactory factory) : IClassFixture<AdeshaApiFactory>
 {
@@ -32,7 +32,8 @@ public sealed class AuthFlowTests(AdeshaApiFactory factory) : IClassFixture<Ades
         var setupRequired = await client.GetFromJsonAsync<JsonElement>("/api/system/setup-required");
         Assert.True(setupRequired.GetProperty("setupRequired").GetBoolean());
 
-        // 2. Owner setup returns a TOTP shared key.
+        // 2. Owner setup returns a TOTP shared key. The account is usable immediately for
+        // password-only login; TOTP enrolment is optional.
         var setupResponse = await client.PostAsJsonAsync("/api/auth/setup",
             new { username = Username, password = Password });
         Assert.Equal(HttpStatusCode.OK, setupResponse.StatusCode);
@@ -40,52 +41,50 @@ public sealed class AuthFlowTests(AdeshaApiFactory factory) : IClassFixture<Ades
         Assert.NotNull(setup);
         Assert.StartsWith("otpauth://totp/Adesha:", setup.OtpauthUri);
 
-        // 3. A second owner cannot be created (single-tenant).
+        // 3. A second owner cannot be created (single-tenant). Re-running setup with the same
+        // credentials is also rejected now that the account is usable without TOTP.
         var duplicate = await client.PostAsJsonAsync("/api/auth/setup",
             new { username = "intruder", password = "another-long-password-99" });
         Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
 
-        // 4. Login before TOTP confirmation is refused: the second factor is mandatory.
-        var premature = await client.PostAsJsonAsync("/api/auth/login",
-            new { username = Username, password = Password, totpCode = TotpGenerator.GenerateCode(setup.SharedKey) });
-        if (premature.StatusCode != HttpStatusCode.Forbidden)
-        {
-            var body = await premature.Content.ReadAsStringAsync();
-            Assert.Fail($"Premature login returned {premature.StatusCode}: {body}");
-        }
-
-        // 4b. Setup stays required until TOTP is confirmed, and an abandoned enrollment can be resumed
-        // with the same credentials, which issues a fresh shared key.
-        var stillRequired = await client.GetFromJsonAsync<JsonElement>("/api/system/setup-required");
-        Assert.True(stillRequired.GetProperty("setupRequired").GetBoolean());
-
         var resume = await client.PostAsJsonAsync("/api/auth/setup",
             new { username = Username, password = Password });
-        Assert.Equal(HttpStatusCode.OK, resume.StatusCode);
-        setup = await resume.Content.ReadFromJsonAsync<SetupResponse>(Json);
-        Assert.NotNull(setup);
+        Assert.Equal(HttpStatusCode.Conflict, resume.StatusCode);
 
-        // 5. Confirm TOTP with a real RFC 6238 code.
+        // 4. Setup is no longer required once an owner exists (TOTP is optional).
+        var setupDone = await client.GetFromJsonAsync<JsonElement>("/api/system/setup-required");
+        Assert.False(setupDone.GetProperty("setupRequired").GetBoolean());
+
+        // 5. Password-only login works before TOTP is enabled.
+        var passwordOnly = await client.PostAsJsonAsync("/api/auth/login",
+            new { username = Username, password = Password });
+        Assert.Equal(HttpStatusCode.OK, passwordOnly.StatusCode);
+        var passwordOnlyTokens = await passwordOnly.Content.ReadFromJsonAsync<TokenPair>(Json);
+        Assert.NotNull(passwordOnlyTokens);
+
+        // 6. Confirm TOTP with a real RFC 6238 code to enable the second factor.
         var confirm = await client.PostAsJsonAsync("/api/auth/setup/confirm-totp",
             new { username = Username, password = Password, totpCode = TotpGenerator.GenerateCode(setup.SharedKey) });
         Assert.Equal(HttpStatusCode.OK, confirm.StatusCode);
 
-        var setupDone = await client.GetFromJsonAsync<JsonElement>("/api/system/setup-required");
-        Assert.False(setupDone.GetProperty("setupRequired").GetBoolean());
+        // 7. Once TOTP is enabled, password-only login is refused (a code is now required).
+        var noCode = await client.PostAsJsonAsync("/api/auth/login",
+            new { username = Username, password = Password });
+        Assert.Equal(HttpStatusCode.Unauthorized, noCode.StatusCode);
 
-        // 6. Wrong TOTP code is rejected.
+        // 8. Wrong TOTP code is rejected.
         var badTotp = await client.PostAsJsonAsync("/api/auth/login",
             new { username = Username, password = Password, totpCode = "000000" });
         Assert.Equal(HttpStatusCode.Unauthorized, badTotp.StatusCode);
 
-        // 7. Correct password + TOTP issues a token pair.
+        // 9. Correct password + TOTP issues a token pair.
         var login = await client.PostAsJsonAsync("/api/auth/login",
             new { username = Username, password = Password, totpCode = TotpGenerator.GenerateCode(setup.SharedKey) });
         Assert.Equal(HttpStatusCode.OK, login.StatusCode);
         var tokens = await login.Content.ReadFromJsonAsync<TokenPair>(Json);
         Assert.NotNull(tokens);
 
-        // 8. The access token authenticates protected endpoints; anonymous calls are rejected.
+        // 10. The access token authenticates protected endpoints; anonymous calls are rejected.
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/auth/me")).StatusCode);
 
         using var authed = new HttpRequestMessage(HttpMethod.Get, "/api/auth/me");
@@ -93,24 +92,24 @@ public sealed class AuthFlowTests(AdeshaApiFactory factory) : IClassFixture<Ades
         var me = await client.SendAsync(authed);
         Assert.Equal(HttpStatusCode.OK, me.StatusCode);
 
-        // 9. Refresh rotation: old refresh token stops working, new one is issued.
+        // 11. Refresh rotation: old refresh token stops working, new one is issued.
         var refreshed = await client.PostAsJsonAsync("/api/auth/refresh", new { refreshToken = tokens.RefreshToken });
         Assert.Equal(HttpStatusCode.OK, refreshed.StatusCode);
         var rotated = await refreshed.Content.ReadFromJsonAsync<TokenPair>(Json);
         Assert.NotNull(rotated);
         Assert.NotEqual(tokens.RefreshToken, rotated.RefreshToken);
 
-        // 10. Replaying the rotated (revoked) token fails AND revokes the whole family.
+        // 12. Replaying the rotated (revoked) token fails AND revokes the whole family.
         var replay = await client.PostAsJsonAsync("/api/auth/refresh", new { refreshToken = tokens.RefreshToken });
         Assert.Equal(HttpStatusCode.Unauthorized, replay.StatusCode);
         var familyRevoked = await client.PostAsJsonAsync("/api/auth/refresh", new { refreshToken = rotated.RefreshToken });
         Assert.Equal(HttpStatusCode.Unauthorized, familyRevoked.StatusCode);
 
-        // 11. Correlation id is echoed on responses.
+        // 13. Correlation id is echoed on responses.
         var correlated = await client.GetAsync("/api/system/status");
         Assert.True(correlated.Headers.Contains("X-Correlation-Id"));
 
-        // 12. Repeated failures lock the account out (this test runs last: it locks the user).
+        // 14. Repeated failures lock the account out (this test runs last: it locks the user).
         for (var i = 0; i < 5; i++)
         {
             await client.PostAsJsonAsync("/api/auth/login",

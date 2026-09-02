@@ -54,9 +54,12 @@ export class AuthService {
     this._setupRequired.set(false);
   }
 
-  async login(username: string, password: string, totpCode: string): Promise<void> {
+  async login(username: string, password: string, totpCode?: string): Promise<void> {
+    // Omit totpCode entirely when not supplied so password-only login is sent as
+    // { username, password } and the backend applies its TOTP-enabled rule.
+    const body = totpCode ? { username, password, totpCode } : { username, password };
     const tokens = await firstValueFrom<TokenPair>(
-      this.http.post<TokenPair>('/api/auth/login', { username, password, totpCode })
+      this.http.post<TokenPair>('/api/auth/login', body)
     );
     this.storeSession(tokens);
     await this.loadStatus();

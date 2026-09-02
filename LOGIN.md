@@ -2,8 +2,8 @@
 
 This guide covers the three login flows in Adesha:
 
-1. **Owner setup** — creates the single application account.
-2. **App login** — authenticates into Adesha with password + TOTP.
+1. **Owner setup** — creates the single application account (TOTP optional).
+2. **App login** — authenticates into Adesha with a password, optionally plus TOTP.
 3. **Broker login (m.Stock)** — links an m.Stock account to Adesha.
 
 ---
@@ -20,19 +20,33 @@ http://<adesha-web>/setup
 2. Enter a **Password** of at least **12 characters**.
 3. Click **Create owner**.
 
-A TOTP secret and `otpauth://` link are shown. Scan the secret in an authenticator app, then enter the 6-digit code and click **Confirm and enable**. This step is required before the owner can log in.
+The account is usable immediately for password-only login. A TOTP secret and
+`otpauth://` link are also shown; TOTP is **optional**:
 
-> The backend enforces `SetupOwnerRequestValidator`: 12–256 character password, mandatory TOTP confirmation.
+- To enable the second factor, scan the secret in an authenticator app, enter the
+  6-digit code, and click **Confirm and enable**.
+- To skip TOTP, click **Skip — password only**. You can log in with just the password.
+
+> The backend enforces `SetupOwnerRequestValidator`: 12–256 character password.
+> TOTP confirmation (`/api/auth/setup/confirm-totp`) is optional.
 
 ---
 
 ## 2. App login
 
-Use the owner credentials plus the current TOTP code:
+The login page offers a **method selector**: *Password only* or *Password + TOTP*.
+Pick the one that matches the account's configuration.
 
+`POST /api/auth/login`
+
+```json
+{
+  "username": "owner",
+  "password": "..."
+}
 ```
-POST /api/auth/login
-```
+
+or, when TOTP is enabled on the account:
 
 ```json
 {
@@ -41,6 +55,11 @@ POST /api/auth/login
   "totpCode": "123456"
 }
 ```
+
+The backend decides whether a TOTP code is required based on the account's
+`TwoFactorEnabled` flag: if TOTP is enabled, a valid `totpCode` is mandatory
+(failed attempts count toward lockout); if TOTP is not enabled, the password
+alone authenticates the owner and `totpCode` is ignored.
 
 On success, the response is an `accessToken` / `refreshToken` pair. The access token is short-lived (10 minutes by default); use `/api/auth/refresh` with the refresh token when it expires.
 
