@@ -23,6 +23,11 @@ export const routes: Routes = [
     loadComponent: () => import('./dashboard/dashboard.component').then((m) => m.DashboardComponent),
   },
   {
+    path: 'broker-login',
+    canActivate: [authGuard],
+    loadComponent: () => import('./broker-login/broker-login.component').then((m) => m.BrokerLoginComponent),
+  },
+  {
     path: '**',
     redirectTo: '/login',
   },

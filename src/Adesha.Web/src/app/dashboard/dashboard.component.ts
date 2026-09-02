@@ -1,16 +1,20 @@
 import { Component, inject } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { AuthService } from '../core/auth.service';
 import { TradingModeBannerComponent } from '../trading-mode-banner/trading-mode-banner.component';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [TradingModeBannerComponent],
+  imports: [TradingModeBannerComponent, RouterLink],
   template: `
     <app-trading-mode-banner />
     <div class="container">
       <h1>Adesha Dashboard</h1>
       <p>Trading mode: <strong>{{ auth.tradingMode() }}</strong></p>
+      <p>
+        <a routerLink="/broker-login">Broker login (m.Stock)</a>
+      </p>
       <p>Order management and market data come in later work orders.</p>
       <button (click)="auth.logout()">Log out</button>
     </div>

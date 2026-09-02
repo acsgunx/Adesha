@@ -37,8 +37,6 @@ public sealed class MStockAdapter : IBrokerAdapter
     private readonly IMStockAuthStrategy _auth;
     private readonly string _baseUrl;
     private string? _accessToken;
-    private string? _pendingLoginUsername;
-    private string? _pendingRefreshToken;
 
     public MStockAdapter(HttpClient httpClient, MStockApiKey apiKey, MStockApiType apiType = MStockApiType.TypeA)
     {
@@ -81,13 +79,10 @@ public sealed class MStockAdapter : IBrokerAdapter
         _accessToken = session.AccessToken;
     }
 
-    public async Task InitiateLoginAsync(string username, string password, CancellationToken cancellationToken)
+    public async Task<BrokerLoginState> InitiateLoginAsync(string username, string password, CancellationToken cancellationToken)
     {
         // Step 1: POST /connect/login -> triggers OTP to registered mobile (TypeA) or
         // returns a refresh handle for the next step (TypeB).
-        _pendingLoginUsername = username;
-        _pendingRefreshToken = null;
-
         using var request = _auth.BuildLoginRequest(username, password);
         request.RequestUri = new Uri($"{_baseUrl}/connect/login");
 
@@ -99,14 +94,20 @@ public sealed class MStockAdapter : IBrokerAdapter
             throw MStockErrorMapper.MapError(response, body);
         }
 
-        _pendingRefreshToken = _auth.ProcessLoginResponse(body);
+        var refreshHandle = _auth.ProcessLoginResponse(body);
+        return new BrokerLoginState
+        {
+            BrokerId = BrokerId.MStock,
+            Username = username,
+            RefreshHandle = refreshHandle,
+        };
     }
 
-    public async Task<BrokerSession> CompleteLoginWithOtpAsync(string otp, CancellationToken cancellationToken)
+    public async Task<BrokerSession> CompleteLoginWithOtpAsync(BrokerLoginState state, string otp, CancellationToken cancellationToken)
     {
         // Step 2: POST /session/token. TypeA sends api_key + request_token(=OTP) + checksum;
         // TypeB sends refreshToken (from login) + otp.
-        using var request = _auth.BuildSessionTokenRequest(_apiKey, otp, _pendingRefreshToken);
+        using var request = _auth.BuildSessionTokenRequest(_apiKey, otp, state.RefreshHandle);
         request.RequestUri = new Uri($"{_baseUrl}/session/token");
 
         var session = await SendSessionRequestAsync(request, cancellationToken);
@@ -114,12 +115,12 @@ public sealed class MStockAdapter : IBrokerAdapter
         return session;
     }
 
-    public async Task<BrokerSession> CompleteLoginWithTotpAsync(string totp, CancellationToken cancellationToken)
+    public async Task<BrokerSession> CompleteLoginWithTotpAsync(BrokerLoginState state, string totp, CancellationToken cancellationToken)
     {
         // TOTP path: POST /session/verifytotp. Used when TOTP is enabled on the m.Stock
         // account (OTP is not sent in this case). TypeA sends api_key + totp; TypeB sends
         // refreshToken (from login) + totp.
-        using var request = _auth.BuildVerifyTotpRequest(_apiKey, totp, _pendingRefreshToken);
+        using var request = _auth.BuildVerifyTotpRequest(_apiKey, totp, state.RefreshHandle);
         request.RequestUri = new Uri($"{_baseUrl}/session/verifytotp");
 
         var session = await SendSessionRequestAsync(request, cancellationToken);

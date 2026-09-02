@@ -95,25 +95,42 @@ Valid values: `TypeA` or `TypeB`. Default is `TypeA`.
 | Session TOTP body | `api_key` + `totp` | `refreshToken` (from login) + `totp` |
 | Session auth header | `Authorization: token {api_key}:{jwtToken}` | `Authorization: Bearer {jwtToken}` + `X-PrivateKey: {api_key}` |
 
-### 3.3 Steps
+### 3.3 UI flow
 
-The `IBrokerAdapter` exposes these methods:
+After logging into Adesha, go to **Dashboard → Broker login (m.Stock)** (`/broker-login`).
+The UI walks through the same two-step flow: enter credentials, choose OTP or TOTP,
+and complete the session.
 
-1. `InitiateLoginAsync(username, password)` — POST `/connect/login`.
+### 3.4 HTTP API
+
+The `IBrokerAdapter` methods are exposed through authenticated HTTP endpoints:
+
+1. `POST /api/broker/login/initiate`
+   ```json
+   { "brokerId": "MStock", "username": "...", "password": "..." }
+   ```
    - Type A: triggers an OTP to the registered mobile.
-   - Type B: returns a refresh handle that is captured internally.
+   - Type B: returns a refresh handle that is stored temporarily in Redis for the next step.
 
-2. `CompleteLoginWithOtpAsync(otp)` — POST `/session/token`.
+2. `POST /api/broker/login/complete-otp`
+   ```json
+   { "brokerId": "MStock", "otp": "123456" }
+   ```
    - Exchanges the OTP for a broker session.
 
    **OR**
 
-   `CompleteLoginWithTotpAsync(totp)` — POST `/session/verifytotp`.
+   `POST /api/broker/login/complete-totp`
+   ```json
+   { "brokerId": "MStock", "totp": "123456" }
+   ```
    - Use this when TOTP is enabled on the m.Stock account (no SMS OTP).
 
-3. `SetSession(brokerSession)` — restores a previously stored session on startup.
+3. `GET /api/broker/session?brokerId=MStock` — current session status.
 
-### 3.4 Session lifetime
+4. `POST /api/broker/logout` — invalidates the session at the broker and clears it locally.
+
+### 3.5 Session lifetime
 
 m.Stock sessions are valid for the shorter of **12 hours** or until midnight IST. Adesha uses the conservative 12-hour window. After expiry, the broker login flow must be repeated.
 

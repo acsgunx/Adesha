@@ -72,11 +72,14 @@ public class MStockAdapterTests
             return Ok(new { status = "success", data = new { ugid = "abc", cid = "538", is_error = "false" } });
         });
 
-        await adapter.InitiateLoginAsync("myuser", "mypass", CancellationToken.None);
+        var state = await adapter.InitiateLoginAsync("myuser", "mypass", CancellationToken.None);
 
         Assert.NotNull(capturedContent);
         Assert.Contains("username=myuser", capturedContent);
         Assert.Contains("password=mypass", capturedContent);
+        Assert.Equal("myuser", state.Username);
+        Assert.Equal(BrokerId.MStock, state.BrokerId);
+        Assert.Null(state.RefreshHandle);
     }
 
     [Fact]
@@ -118,7 +121,8 @@ public class MStockAdapterTests
             },
         }));
 
-        var session = await adapter.CompleteLoginWithOtpAsync("123456", CancellationToken.None);
+        var state = new BrokerLoginState { BrokerId = BrokerId.MStock, Username = "myuser" };
+        var session = await adapter.CompleteLoginWithOtpAsync(state, "123456", CancellationToken.None);
 
         Assert.Equal(BrokerId.MStock, session.BrokerId);
         Assert.Equal("538", session.UserId);
@@ -138,8 +142,9 @@ public class MStockAdapterTests
             data = (object?)null,
         }));
 
+        var state = new BrokerLoginState { BrokerId = BrokerId.MStock, Username = "myuser" };
         var ex = await Assert.ThrowsAsync<BrokerException>(
-            () => adapter.CompleteLoginWithOtpAsync("000000", CancellationToken.None));
+            () => adapter.CompleteLoginWithOtpAsync(state, "000000", CancellationToken.None));
 
         Assert.Equal(BrokerErrorKind.BrokerRejected, ex.Kind);
         Assert.Contains("OTP", ex.Message);
@@ -162,7 +167,8 @@ public class MStockAdapterTests
             },
         }));
 
-        var session = await adapter.CompleteLoginWithTotpAsync("654321", CancellationToken.None);
+        var state = new BrokerLoginState { BrokerId = BrokerId.MStock, Username = "myuser" };
+        var session = await adapter.CompleteLoginWithTotpAsync(state, "654321", CancellationToken.None);
 
         Assert.Equal("jwt-from-totp", session.AccessToken);
     }
@@ -178,8 +184,9 @@ public class MStockAdapterTests
             data = (object?)null,
         }));
 
+        var state = new BrokerLoginState { BrokerId = BrokerId.MStock, Username = "myuser" };
         var ex = await Assert.ThrowsAsync<BrokerException>(
-            () => adapter.CompleteLoginWithTotpAsync("000000", CancellationToken.None));
+            () => adapter.CompleteLoginWithTotpAsync(state, "000000", CancellationToken.None));
 
         Assert.Equal(BrokerErrorKind.Unknown, ex.Kind);
     }
@@ -587,12 +594,14 @@ public class MStockAdapterTests
             });
         });
 
-        await adapter.InitiateLoginAsync("myuser", "mypass", CancellationToken.None);
+        var state = await adapter.InitiateLoginAsync("myuser", "mypass", CancellationToken.None);
 
         Assert.NotNull(capturedBody);
         Assert.Equal("application/json", capturedContentType);
         Assert.Contains("\"clientcode\":\"myuser\"", capturedBody);
         Assert.Contains("\"password\":\"mypass\"", capturedBody);
+        Assert.Equal("myuser", state.Username);
+        Assert.Equal(TypeBRefreshHandle, state.RefreshHandle);
     }
 
     [Fact]
@@ -647,8 +656,8 @@ public class MStockAdapterTests
             });
         });
 
-        await adapter.InitiateLoginAsync("myuser", "mypass", CancellationToken.None);
-        var session = await adapter.CompleteLoginWithOtpAsync("123456", CancellationToken.None);
+        var state = await adapter.InitiateLoginAsync("myuser", "mypass", CancellationToken.None);
+        var session = await adapter.CompleteLoginWithOtpAsync(state, "123456", CancellationToken.None);
 
         Assert.Equal(BrokerId.MStock, session.BrokerId);
         Assert.Equal(TypeBJwt, session.AccessToken);
@@ -694,8 +703,8 @@ public class MStockAdapterTests
             });
         });
 
-        await adapter.InitiateLoginAsync("myuser", "mypass", CancellationToken.None);
-        var session = await adapter.CompleteLoginWithTotpAsync("654321", CancellationToken.None);
+        var state = await adapter.InitiateLoginAsync("myuser", "mypass", CancellationToken.None);
+        var session = await adapter.CompleteLoginWithTotpAsync(state, "654321", CancellationToken.None);
 
         Assert.Equal(TypeBJwt, session.AccessToken);
         Assert.NotNull(capturedBody);
@@ -714,8 +723,14 @@ public class MStockAdapterTests
             data = (object?)null,
         }));
 
+        var state = new BrokerLoginState
+        {
+            BrokerId = BrokerId.MStock,
+            Username = "myuser",
+            RefreshHandle = TypeBRefreshHandle,
+        };
         var ex = await Assert.ThrowsAsync<BrokerException>(
-            () => adapter.CompleteLoginWithOtpAsync("000000", CancellationToken.None));
+            () => adapter.CompleteLoginWithOtpAsync(state, "000000", CancellationToken.None));
 
         Assert.Contains("OTP", ex.Message);
     }

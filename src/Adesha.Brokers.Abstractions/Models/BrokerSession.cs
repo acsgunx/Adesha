@@ -3,8 +3,9 @@ using Adesha.Domain.Primitives;
 namespace Adesha.Brokers.Abstractions.Models;
 
 /// <summary>
-/// Authenticated broker session. The access token is held here only in memory; the
-/// session store persists metadata (expiry, user id) but never the raw token in plaintext.
+/// Authenticated broker session. The session store persists the full session (including
+/// the access token) so the adapter can be restored on each request. The backing cache
+/// should be secured with authentication/TLS in production.
 /// </summary>
 public sealed class BrokerSession
 {

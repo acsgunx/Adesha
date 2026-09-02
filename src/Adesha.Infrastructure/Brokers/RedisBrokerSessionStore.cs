@@ -25,18 +25,7 @@ public sealed class RedisBrokerSessionStore : IBrokerSessionStore
 
     public async Task SaveSessionAsync(BrokerSession session, CancellationToken cancellationToken)
     {
-        var metadata = new BrokerSessionMetadata
-        {
-            BrokerId = session.BrokerId,
-            UserId = session.UserId,
-            ExpiresAtUtc = session.ExpiresAtUtc,
-            CreatedAtUtc = DateTimeOffset.UtcNow,
-            Exchanges = session.Exchanges,
-            Products = session.Products,
-            OrderTypes = session.OrderTypes,
-        };
-
-        var json = JsonSerializer.Serialize(metadata, _jsonOptions);
+        var json = JsonSerializer.Serialize(session, _jsonOptions);
         var key = GetKey(session.BrokerId);
 
         // Set the Redis TTL to match the session expiry so stale sessions auto-evict.
@@ -55,7 +44,7 @@ public sealed class RedisBrokerSessionStore : IBrokerSessionStore
         await _cache.SetStringAsync(key, json, options, cancellationToken);
     }
 
-    public async Task<BrokerSessionMetadata?> GetSessionAsync(BrokerId brokerId, CancellationToken cancellationToken)
+    public async Task<BrokerSession?> GetSessionAsync(BrokerId brokerId, CancellationToken cancellationToken)
     {
         var json = await _cache.GetStringAsync(GetKey(brokerId), cancellationToken);
         if (string.IsNullOrEmpty(json))
@@ -63,7 +52,7 @@ public sealed class RedisBrokerSessionStore : IBrokerSessionStore
             return null;
         }
 
-        return JsonSerializer.Deserialize<BrokerSessionMetadata>(json, _jsonOptions);
+        return JsonSerializer.Deserialize<BrokerSession>(json, _jsonOptions);
     }
 
     public async Task ClearSessionAsync(BrokerId brokerId, CancellationToken cancellationToken)

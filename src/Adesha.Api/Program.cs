@@ -1,10 +1,12 @@
 using Adesha.Api.Auth;
+using Adesha.Api.Broker;
 using Adesha.Api.Configuration;
 using Adesha.Api.Middleware;
 using Adesha.Api.SystemStatus;
 using Adesha.Application.Auditing;
 using Adesha.Application.Brokers;
 using Adesha.Application.Configuration;
+using Adesha.Brokers.Abstractions;
 using Adesha.Brokers.MStock;
 using Adesha.Infrastructure.Auditing;
 using Adesha.Infrastructure.Brokers;
@@ -71,6 +73,7 @@ builder.Services.AddMStockBrokerAdapter();
 
 // Broker session store: Redis-backed, with TTL matching session expiry.
 builder.Services.AddSingleton<IBrokerSessionStore, RedisBrokerSessionStore>();
+builder.Services.AddSingleton<IBrokerLoginStateStore, RedisBrokerLoginStateStore>();
 
 // Instrument master service: fetches, versions, and caches the broker instrument
 // list in Redis with stable InstrumentId mapping across daily refreshes.
@@ -111,6 +114,7 @@ app.UseAuthorization();
 
 app.MapDefaultEndpoints();
 app.MapAuthEndpoints();
+app.MapBrokerEndpoints();
 app.MapSystemEndpoints();
 
 app.Run();

@@ -19,22 +19,23 @@ public interface IBrokerAdapter
     // --- Authentication ---
 
     /// <summary>
-    /// m.Stock: username/password -> OTP sent to mobile. Returns a pending-login handle
-    /// that the caller completes via <see cref="CompleteLoginWithOtpAsync"/>.
+    /// m.Stock: username/password -> OTP sent to mobile. Returns a <see cref="BrokerLoginState"/>
+    /// that the caller completes via <see cref="CompleteLoginWithOtpAsync"/> or
+    /// <see cref="CompleteLoginWithTotpAsync"/>.
     /// Zerodha: not applicable (redirect flow) — the adapter throws
     /// <see cref="NotSupportedException"/> if called; use the broker-specific OAuth path.
     /// </summary>
-    Task InitiateLoginAsync(string username, string password, CancellationToken cancellationToken);
+    Task<BrokerLoginState> InitiateLoginAsync(string username, string password, CancellationToken cancellationToken);
 
     /// <summary>
     /// Completes OTP-based login (m.Stock). Returns the authenticated session.
     /// </summary>
-    Task<BrokerSession> CompleteLoginWithOtpAsync(string otp, CancellationToken cancellationToken);
+    Task<BrokerSession> CompleteLoginWithOtpAsync(BrokerLoginState state, string otp, CancellationToken cancellationToken);
 
     /// <summary>
     /// Completes TOTP-based login (m.Stock when TOTP is enabled).
     /// </summary>
-    Task<BrokerSession> CompleteLoginWithTotpAsync(string totp, CancellationToken cancellationToken);
+    Task<BrokerSession> CompleteLoginWithTotpAsync(BrokerLoginState state, string totp, CancellationToken cancellationToken);
 
     /// <summary>
     /// Sets the current session (restored from the session store on startup/reconnect).
