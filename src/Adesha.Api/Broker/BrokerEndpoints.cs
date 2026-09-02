@@ -26,7 +26,28 @@ public static class BrokerEndpoints
         IEnumerable<IBrokerAdapter> adapters,
         CancellationToken cancellationToken)
     {
-        var caps = adapters.Select(a => a.Capabilities);
+        // Serialize BrokerId as a string so the Angular client can filter by name.
+        var caps = adapters.Select(a => new
+        {
+            brokerId = a.Capabilities.BrokerId.ToString(),
+            a.Capabilities.DisplayName,
+            a.Capabilities.SupportsOtpLogin,
+            a.Capabilities.SupportsTotpLogin,
+            a.Capabilities.SupportsInstrumentMaster,
+            a.Capabilities.SupportsLtpQuotes,
+            a.Capabilities.SupportsOhlcQuotes,
+            a.Capabilities.SupportsOrderBook,
+            a.Capabilities.SupportsTradeBook,
+            a.Capabilities.SupportsPositions,
+            a.Capabilities.SupportsHoldings,
+            a.Capabilities.SupportsFunds,
+            a.Capabilities.SupportsOrderPlacement,
+            a.Capabilities.SupportsOrderModification,
+            a.Capabilities.SupportsOrderCancellation,
+            a.Capabilities.SupportedExchanges,
+            a.Capabilities.SupportedProducts,
+            a.Capabilities.SupportedOrderTypes,
+        });
         return Results.Ok(caps);
     }
 
