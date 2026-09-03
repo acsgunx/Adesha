@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Adesha.Application.Brokers;
 using Adesha.Brokers.Abstractions;
+using Adesha.Brokers.Abstractions.Errors;
 using Adesha.Brokers.Abstractions.Models;
 using FluentValidation;
 
@@ -104,7 +105,16 @@ public static class BrokerEndpoints
             return Results.BadRequest(new { error = $"Broker '{request.BrokerId}' does not support credential-based login." });
         }
 
-        var state = await adapter.InitiateLoginAsync(request.Username, request.Password, cancellationToken);
+        BrokerLoginState state;
+        try
+        {
+            state = await adapter.InitiateLoginAsync(request.Username, request.Password, cancellationToken);
+        }
+        catch (BrokerException ex)
+        {
+            return MapBrokerException(ex);
+        }
+
         var userId = GetUserId(user);
         await loginStateStore.SaveAsync(userId, state, cancellationToken);
 
@@ -144,7 +154,16 @@ public static class BrokerEndpoints
             return Results.BadRequest(new { error = $"Broker '{request.BrokerId}' is not configured." });
         }
 
-        var session = await adapter.CompleteLoginWithOtpAsync(state, request.Otp, cancellationToken);
+        BrokerSession session;
+        try
+        {
+            session = await adapter.CompleteLoginWithOtpAsync(state, request.Otp, cancellationToken);
+        }
+        catch (BrokerException ex)
+        {
+            return MapBrokerException(ex, StatusCodes.Status401Unauthorized);
+        }
+
         await sessionStore.SaveSessionAsync(session, cancellationToken);
 
         return Results.Ok(MapSession(session));
@@ -183,7 +202,16 @@ public static class BrokerEndpoints
             return Results.BadRequest(new { error = $"Broker '{request.BrokerId}' is not configured." });
         }
 
-        var session = await adapter.CompleteLoginWithTotpAsync(state, request.Totp, cancellationToken);
+        BrokerSession session;
+        try
+        {
+            session = await adapter.CompleteLoginWithTotpAsync(state, request.Totp, cancellationToken);
+        }
+        catch (BrokerException ex)
+        {
+            return MapBrokerException(ex, StatusCodes.Status401Unauthorized);
+        }
+
         await sessionStore.SaveSessionAsync(session, cancellationToken);
 
         return Results.Ok(MapSession(session));
@@ -216,8 +244,15 @@ public static class BrokerEndpoints
         var session = await sessionStore.GetSessionAsync(brokerId, cancellationToken);
         if (session is not null && !session.IsExpired)
         {
-            adapter.SetSession(session);
-            await adapter.LogoutAsync(cancellationToken);
+            try
+            {
+                adapter.SetSession(session);
+                await adapter.LogoutAsync(cancellationToken);
+            }
+            catch (BrokerException ex)
+            {
+                return MapBrokerException(ex);
+            }
         }
 
         await sessionStore.ClearSessionAsync(brokerId, cancellationToken);
@@ -235,6 +270,24 @@ public static class BrokerEndpoints
         return user.FindFirst(ClaimTypes.NameIdentifier)?.Value
             ?? user.FindFirst("sub")?.Value
             ?? throw new InvalidOperationException("User identity is missing.");
+    }
+
+    private static IResult MapBrokerException(BrokerException ex, int defaultStatus = StatusCodes.Status400BadRequest)
+    {
+        var status = ex.Kind switch
+        {
+            BrokerErrorKind.AuthFailed or BrokerErrorKind.AuthExpired => StatusCodes.Status401Unauthorized,
+            BrokerErrorKind.RateLimited => StatusCodes.Status429TooManyRequests,
+            BrokerErrorKind.BrokerUnavailable => StatusCodes.Status503ServiceUnavailable,
+            BrokerErrorKind.Timeout => StatusCodes.Status504GatewayTimeout,
+            BrokerErrorKind.BrokerRejected => defaultStatus,
+            _ => StatusCodes.Status502BadGateway,
+        };
+
+        return Results.Problem(
+            statusCode: status,
+            title: ex.Message,
+            detail: ex.BrokerErrorCode);
     }
 
     private static object MapSession(BrokerSession session)

@@ -25,8 +25,6 @@ namespace Adesha.Brokers.MStock;
 /// </summary>
 public sealed class MStockAdapter : IBrokerAdapter
 {
-    private const string ApiRoot = "https://api.mstock.trade/openapi";
-
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -35,7 +33,6 @@ public sealed class MStockAdapter : IBrokerAdapter
     private readonly HttpClient _httpClient;
     private readonly string _apiKey;
     private readonly IMStockAuthStrategy _auth;
-    private readonly string _baseUrl;
     private string? _accessToken;
 
     public MStockAdapter(HttpClient httpClient, MStockApiKey apiKey, MStockApiType apiType = MStockApiType.TypeA)
@@ -45,7 +42,14 @@ public sealed class MStockAdapter : IBrokerAdapter
         _auth = apiType == MStockApiType.TypeB
             ? new MStockTypeBAuthStrategy()
             : new MStockTypeAAuthStrategy();
-        _baseUrl = $"{ApiRoot}/{_auth.PathSegment}";
+        _httpClient.BaseAddress = BuildBaseAddress(httpClient.BaseAddress, _auth.PathSegment);
+    }
+
+    private static Uri BuildBaseAddress(Uri? configuredBaseAddress, string pathSegment)
+    {
+        var authority = configuredBaseAddress?.GetLeftPart(UriPartial.Authority)
+            ?? "https://api.mstock.trade";
+        return new Uri($"{authority}/openapi/{pathSegment}/");
     }
 
     public BrokerId BrokerId => BrokerId.MStock;
@@ -81,10 +85,9 @@ public sealed class MStockAdapter : IBrokerAdapter
 
     public async Task<BrokerLoginState> InitiateLoginAsync(string username, string password, CancellationToken cancellationToken)
     {
-        // Step 1: POST /connect/login -> triggers OTP to registered mobile (TypeA) or
+        // Step 1: POST connect/login -> triggers OTP to registered mobile (TypeA) or
         // returns a refresh handle for the next step (TypeB).
         using var request = _auth.BuildLoginRequest(username, password);
-        request.RequestUri = new Uri($"{_baseUrl}/connect/login");
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -105,10 +108,9 @@ public sealed class MStockAdapter : IBrokerAdapter
 
     public async Task<BrokerSession> CompleteLoginWithOtpAsync(BrokerLoginState state, string otp, CancellationToken cancellationToken)
     {
-        // Step 2: POST /session/token. TypeA sends api_key + request_token(=OTP) + checksum;
+        // Step 2: POST session/token. TypeA sends api_key + request_token(=OTP) + checksum;
         // TypeB sends refreshToken (from login) + otp.
         using var request = _auth.BuildSessionTokenRequest(_apiKey, otp, state.RefreshHandle);
-        request.RequestUri = new Uri($"{_baseUrl}/session/token");
 
         var session = await SendSessionRequestAsync(request, cancellationToken);
         _accessToken = session.AccessToken;
@@ -117,11 +119,10 @@ public sealed class MStockAdapter : IBrokerAdapter
 
     public async Task<BrokerSession> CompleteLoginWithTotpAsync(BrokerLoginState state, string totp, CancellationToken cancellationToken)
     {
-        // TOTP path: POST /session/verifytotp. Used when TOTP is enabled on the m.Stock
+        // TOTP path: POST session/verifytotp. Used when TOTP is enabled on the m.Stock
         // account (OTP is not sent in this case). TypeA sends api_key + totp; TypeB sends
         // refreshToken (from login) + totp.
         using var request = _auth.BuildVerifyTotpRequest(_apiKey, totp, state.RefreshHandle);
-        request.RequestUri = new Uri($"{_baseUrl}/session/verifytotp");
 
         var session = await SendSessionRequestAsync(request, cancellationToken);
         _accessToken = session.AccessToken;
@@ -143,7 +144,7 @@ public sealed class MStockAdapter : IBrokerAdapter
 
     public async Task LogoutAsync(CancellationToken cancellationToken)
     {
-        using var request = CreateAuthenticatedRequest(HttpMethod.Get, "/logout");
+        using var request = CreateAuthenticatedRequest(HttpMethod.Get, "logout");
         var response = await _httpClient.SendAsync(request, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -158,7 +159,7 @@ public sealed class MStockAdapter : IBrokerAdapter
     public async Task<CanonicalFunds> GetFundsAsync(CancellationToken cancellationToken)
     {
         // GET /user/fundsummary
-        var data = await GetAsync<List<MStockFundSummary>>("/user/fundsummary", cancellationToken);
+        var data = await GetAsync<List<MStockFundSummary>>("user/fundsummary", cancellationToken);
         var fund = data is { Count: > 0 } ? data[0] : new MStockFundSummary();
 
         return new CanonicalFunds
@@ -173,7 +174,7 @@ public sealed class MStockAdapter : IBrokerAdapter
     public async Task<IReadOnlyList<CanonicalInstrument>> GetInstrumentMasterAsync(CancellationToken cancellationToken)
     {
         // GET /instruments/scriptmaster — returns CSV, not JSON.
-        using var request = CreateAuthenticatedRequest(HttpMethod.Get, "/instruments/scriptmaster");
+        using var request = CreateAuthenticatedRequest(HttpMethod.Get, "instruments/scriptmaster");
         var response = await _httpClient.SendAsync(request, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -196,7 +197,7 @@ public sealed class MStockAdapter : IBrokerAdapter
         }
 
         var query = string.Join("&", pairs.Select(p => $"i={Uri.EscapeDataString(p)}"));
-        var data = await GetAsync<Dictionary<string, MStockLtpEntry>>($"/instruments/quote/ltp?{query}", cancellationToken);
+        var data = await GetAsync<Dictionary<string, MStockLtpEntry>>($"instruments/quote/ltp?{query}", cancellationToken);
 
         if (data is null)
         {
@@ -225,7 +226,7 @@ public sealed class MStockAdapter : IBrokerAdapter
         }
 
         var query = string.Join("&", pairs.Select(p => $"i={Uri.EscapeDataString(p)}"));
-        var data = await GetAsync<Dictionary<string, MStockOhlcEntry>>($"/instruments/quote/ohlc?{query}", cancellationToken);
+        var data = await GetAsync<Dictionary<string, MStockOhlcEntry>>($"instruments/quote/ohlc?{query}", cancellationToken);
 
         if (data is null)
         {
@@ -251,7 +252,7 @@ public sealed class MStockAdapter : IBrokerAdapter
     public async Task<IReadOnlyList<CanonicalOrder>> GetOrderBookAsync(CancellationToken cancellationToken)
     {
         // GET /orders
-        var data = await GetAsync<List<MStockOrder>>("/orders", cancellationToken);
+        var data = await GetAsync<List<MStockOrder>>("orders", cancellationToken);
         if (data is null)
         {
             return [];
@@ -263,7 +264,7 @@ public sealed class MStockAdapter : IBrokerAdapter
     public async Task<IReadOnlyList<CanonicalTrade>> GetTradeBookAsync(CancellationToken cancellationToken)
     {
         // GET /tradebook — uses a different field naming convention (uppercase) than /orders.
-        var data = await GetAsync<List<MStockTradeBookEntry>>("/tradebook", cancellationToken);
+        var data = await GetAsync<List<MStockTradeBookEntry>>("tradebook", cancellationToken);
         if (data is null)
         {
             return [];
@@ -275,7 +276,7 @@ public sealed class MStockAdapter : IBrokerAdapter
     public async Task<IReadOnlyList<CanonicalPosition>> GetPositionsAsync(CancellationToken cancellationToken)
     {
         // GET /portfolio/positions — returns { net: [...], day: [...] }
-        var data = await GetAsync<MStockPositionData>("/portfolio/positions", cancellationToken);
+        var data = await GetAsync<MStockPositionData>("portfolio/positions", cancellationToken);
         if (data?.Net is null)
         {
             return [];
@@ -287,7 +288,7 @@ public sealed class MStockAdapter : IBrokerAdapter
     public async Task<IReadOnlyList<CanonicalHolding>> GetHoldingsAsync(CancellationToken cancellationToken)
     {
         // GET /portfolio/holdings
-        var data = await GetAsync<List<MStockHolding>>("/portfolio/holdings", cancellationToken);
+        var data = await GetAsync<List<MStockHolding>>("portfolio/holdings", cancellationToken);
         if (data is null)
         {
             return [];
@@ -305,7 +306,7 @@ public sealed class MStockAdapter : IBrokerAdapter
             throw new BrokerException(BrokerErrorKind.AuthExpired, "No active broker session. Login required.");
         }
 
-        var request = new HttpRequestMessage(method, $"{_baseUrl}{path}");
+        var request = new HttpRequestMessage(method, path);
         // Auth header shape is type-specific (TypeA: "token api_key:jwtToken",
         // TypeB: "Bearer jwtToken" + X-PrivateKey).
         _auth.ApplyAuth(request, _apiKey, _accessToken);
@@ -324,9 +325,9 @@ public sealed class MStockAdapter : IBrokerAdapter
         }
 
         var result = JsonSerializer.Deserialize<MStockResponse<T>>(body, JsonOptions);
-        if (result?.Status == "error")
+        if (result?.Status is "error" or "false")
         {
-            throw MStockErrorMapper.MapBusinessError(result);
+            throw MStockErrorMapper.MapBusinessError(result ?? new MStockResponse<T>());
         }
 
         return result?.Data;

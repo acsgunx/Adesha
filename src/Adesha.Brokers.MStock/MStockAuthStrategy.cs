@@ -57,7 +57,7 @@ internal sealed class MStockTypeAAuthStrategy : IMStockAuthStrategy
 
     public HttpRequestMessage BuildLoginRequest(string username, string password)
     {
-        var request = new HttpRequestMessage(HttpMethod.Post, "/connect/login")
+        var request = new HttpRequestMessage(HttpMethod.Post, "connect/login")
         {
             Content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
@@ -72,9 +72,11 @@ internal sealed class MStockTypeAAuthStrategy : IMStockAuthStrategy
     public string? ProcessLoginResponse(string body)
     {
         var loginResult = JsonSerializer.Deserialize<MStockResponse<MStockLoginData>>(body, JsonOptions);
-        if (loginResult?.Status == "error")
+        // TypeA docs: success = "success" + data with is_error:"false".
+        // Failures use "error" (or HTTP 4xx/5xx handled at the HTTP layer).
+        if (loginResult?.Status != "success" || loginResult?.Data is null)
         {
-            throw MStockErrorMapper.MapBusinessError(loginResult);
+            throw MStockErrorMapper.MapBusinessError(loginResult ?? new MStockResponse<MStockLoginData>());
         }
 
         // TypeA login only triggers OTP; there is no refresh handle to carry forward.
@@ -83,7 +85,7 @@ internal sealed class MStockTypeAAuthStrategy : IMStockAuthStrategy
 
     public HttpRequestMessage BuildSessionTokenRequest(string apiKey, string otp, string? refreshToken)
     {
-        var request = new HttpRequestMessage(HttpMethod.Post, "/session/token")
+        var request = new HttpRequestMessage(HttpMethod.Post, "session/token")
         {
             Content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
@@ -98,7 +100,7 @@ internal sealed class MStockTypeAAuthStrategy : IMStockAuthStrategy
 
     public HttpRequestMessage BuildVerifyTotpRequest(string apiKey, string totp, string? refreshToken)
     {
-        var request = new HttpRequestMessage(HttpMethod.Post, "/session/verifytotp")
+        var request = new HttpRequestMessage(HttpMethod.Post, "session/verifytotp")
         {
             Content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
@@ -113,7 +115,7 @@ internal sealed class MStockTypeAAuthStrategy : IMStockAuthStrategy
     public BrokerSession ParseSessionResponse(string body)
     {
         var sessionResult = JsonSerializer.Deserialize<MStockResponse<MStockSessionData>>(body, JsonOptions);
-        if (sessionResult?.Status == "error" || sessionResult?.Data is null)
+        if (sessionResult?.Status != "success" || sessionResult?.Data is null)
         {
             throw MStockErrorMapper.MapBusinessError(sessionResult ?? new MStockResponse<MStockSessionData>());
         }
@@ -190,7 +192,7 @@ internal sealed class MStockTypeBAuthStrategy : IMStockAuthStrategy
             state = string.Empty,
         });
 
-        var request = new HttpRequestMessage(HttpMethod.Post, "/connect/login")
+        var request = new HttpRequestMessage(HttpMethod.Post, "connect/login")
         {
             Content = new StringContent(body, System.Text.Encoding.UTF8, JsonContentType),
         };
@@ -223,7 +225,7 @@ internal sealed class MStockTypeBAuthStrategy : IMStockAuthStrategy
             otp = otp,
         });
 
-        var request = new HttpRequestMessage(HttpMethod.Post, "/session/token")
+        var request = new HttpRequestMessage(HttpMethod.Post, "session/token")
         {
             Content = new StringContent(body, System.Text.Encoding.UTF8, JsonContentType),
         };
@@ -239,7 +241,7 @@ internal sealed class MStockTypeBAuthStrategy : IMStockAuthStrategy
             totp = totp,
         });
 
-        var request = new HttpRequestMessage(HttpMethod.Post, "/session/verifytotp")
+        var request = new HttpRequestMessage(HttpMethod.Post, "session/verifytotp")
         {
             Content = new StringContent(body, System.Text.Encoding.UTF8, JsonContentType),
         };
