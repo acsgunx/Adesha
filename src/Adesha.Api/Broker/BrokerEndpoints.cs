@@ -29,7 +29,7 @@ public static class BrokerEndpoints
         // Serialize BrokerId as a string so the Angular client can filter by name.
         var caps = adapters.Select(a => new
         {
-            brokerId = a.Capabilities.BrokerId.ToString(),
+            brokerId = Enum.GetName(typeof(BrokerId), a.Capabilities.BrokerId),
             a.Capabilities.DisplayName,
             a.Capabilities.SupportsOtpLogin,
             a.Capabilities.SupportsTotpLogin,
